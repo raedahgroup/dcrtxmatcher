@@ -19,10 +19,9 @@
 # [[override]]
 #  name = "github.com/x/y"
 #  version = "2.4.0"
-
 [[constraint]]
-  name = "github.com/golang/protobuf"
-  version = "1.0.0"
+  branch = "master"
+  name = "github.com/golang/protobuf" 
 
 [[constraint]]
   branch = "master"

@@ -4,7 +4,7 @@ package dcrticketmatcher;
 
 service SplitTxMatcherService {
     rpc FindMatches (FindMatchesRequest) returns (FindMatchesResponse);
-    rpc PublishTicket (SubmitInputTxReq) returns (SubmitInputTxRes);
+    rpc SubmitSplitTx (SubmitInputTxReq) returns (SubmitInputTxRes);
     rpc SubmitSignedTransaction (SignTransactionRequest) returns (SignTransactionResponse);
     rpc PublishResult (PublishResultRequest) returns (PublishResultResponse);
     rpc Status (StatusRequest) returns (StatusResponse);
@@ -16,12 +16,12 @@ message FindMatchesRequest {
 }
 
 message FindMatchesResponse {
-    int32 session_id = 1;
+    string session_id = 1;
 }
 
 
 message SubmitInputTxReq {
-    int32 session_id = 1;
+    string session_id = 1;
     bytes split_tx = 2;
 }
 
@@ -32,7 +32,7 @@ message SubmitInputTxRes {
 }
 
 message SignTransactionRequest {
-    int32 session_id = 1;
+    string session_id = 1;
     bytes split_tx = 2;
     int32 req_type = 3;
 }
@@ -42,7 +42,7 @@ message SignTransactionResponse {
     bool publisher = 2;
 }
 message PublishResultRequest {
-    int32 session_id = 1;
+    string session_id = 1;
     bytes joined_tx = 2;
     int32 req_type = 3;
 }

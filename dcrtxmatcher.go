@@ -16,7 +16,7 @@ func main() {
 		return
 	}
 
-	log.Debugf("maxparti %d", config.MaxParticipants)
+	log.Infof("MaxParticipants %d", config.MaxParticipants)
 
 	cfg := &daemon.Config{
 		MaxParticipants: config.MaxParticipants,

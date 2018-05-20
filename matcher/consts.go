@@ -50,6 +50,7 @@ var (
 	ErrFeeTooLow                    = merry.New("Provided tx fee is too low")
 	ErrIndexNotFound                = merry.New("Index not found")
 	ErrSplitValueInputValueMismatch = merry.New("Amount of split tx output and ValueIn of ticket input are different")
+	ErrParticipantLeft              = merry.New("One participant has left session")
 )
 
 // SessionParticipantFee returns the fee that a single participant of a ticket

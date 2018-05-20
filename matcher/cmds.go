@@ -17,18 +17,18 @@ type (
 		err          error
 	}
 
-	publishTicketResponse struct {
-		tx  *wire.MsgTx
-		inputIndes []int32
+	submitSplitTxRes struct {
+		tx          *wire.MsgTx
+		inputIndes  []int32
 		outputIndes []int32
-		err error
-
+		err         error
 	}
 )
 
 type (
 	addParticipantRequest struct {
 		maxAmount uint64
+		sessID    SessionID
 		resp      chan addParticipantResponse
 	}
 
@@ -40,30 +40,29 @@ type (
 		resp             chan setParticipantOutputsResponse
 	}
 
-	publishTicketRequest struct {
+	submitSplitTxReq struct {
 		sessionID          SessionID
 		splitTx            *wire.MsgTx
 		input              *wire.TxIn
 		splitTxOutputIndex int
-		resp               chan publishTicketResponse
+		resp               chan submitSplitTxRes
 	}
 
 	submitSignedTxRequest struct {
-		sessionID          SessionID
-		tx            *wire.MsgTx
-		resp chan submitSignedTxResponse
+		sessionID SessionID
+		tx        *wire.MsgTx
+		resp      chan submitSignedTxResponse
 	}
 
 	submitSignedTxResponse struct {
-		tx  *wire.MsgTx
+		tx        *wire.MsgTx
 		publisher bool
-		err error
+		err       error
 	}
 	publishedTxReq struct {
-		sessionID          SessionID
-		tx  *wire.MsgTx
-		resp chan publishedTxRes
-
+		sessionID SessionID
+		tx        *wire.MsgTx
+		resp      chan publishedTxRes
 	}
 	publishedTxRes struct {
 		tx  *wire.MsgTx

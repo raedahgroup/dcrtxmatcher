@@ -2,11 +2,11 @@ package matcher
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/decred/dcrd/wire"
+	"github.com/xid"
 )
 
 func init() {
@@ -14,8 +14,8 @@ func init() {
 }
 
 type (
-	// SessionID stores the unique id for an in-progress ticket buying session
-	SessionID int32
+	// SessionID stores the unique id for an in-progress join split tx session
+	SessionID string
 
 	// SessionParticipant is a participant of a split in a given session
 	SessionParticipant struct {
@@ -30,7 +30,7 @@ type (
 		Publisher     bool
 		SentPublished bool
 
-		chanPublishTicketResponse  chan publishTicketResponse
+		chanPublishTicketResponse  chan submitSplitTxRes
 		chanSubmitSignedTxResponse chan submitSignedTxResponse
 		chanPublishedTxRes         chan publishedTxRes
 	}
@@ -51,20 +51,18 @@ type (
 
 	// Matcher is the main engine for matching operations
 	Matcher struct {
-		waitingParticipants []*addParticipantRequest
+		//waitingParticipants []*addParticipantRequest
+		waitingParticipants map[SessionID]*addParticipantRequest
 		sessions            map[SessionID]*SessionParticipant
 		cfg                 *Config
-		//log                 *logging.Logger
 
 		addParticipantRequests chan addParticipantRequest
-		publishTicketRequests  chan publishTicketRequest
+		publishTicketRequests  chan submitSplitTxReq
 		submitSignedTxRequest  chan submitSignedTxRequest
 		publishedTxReq         chan publishedTxReq
 	}
 
-	TicketPriceProvider interface {
-		CurrentTicketPrice() uint64
-	}
+
 )
 
 // InputsSigned returns true if all participant already sent their signed input/output
@@ -101,8 +99,9 @@ func NewMatcher(cfg *Config) *Matcher {
 	m := &Matcher{
 		cfg:                    cfg,
 		sessions:               make(map[SessionID]*SessionParticipant),
+		waitingParticipants:    make(map[SessionID]*addParticipantRequest),
 		addParticipantRequests: make(chan addParticipantRequest),
-		publishTicketRequests:  make(chan publishTicketRequest),
+		publishTicketRequests:  make(chan submitSplitTxReq),
 		submitSignedTxRequest:  make(chan submitSignedTxRequest),
 		publishedTxReq:         make(chan publishedTxReq),
 	}
@@ -116,19 +115,32 @@ func (matcher *Matcher) Run() error {
 	for {
 		select {
 		case req := <-matcher.addParticipantRequests:
-			matcher.waitingParticipants = append(matcher.waitingParticipants, &req)
+			matcher.waitingParticipants[req.sessID] = &req
 			if matcher.enoughForMergeTx() {
 				matcher.startNewMergeSession()
-				log.Debug("matcher.enoughForMergeTx start newMergeSession")
+				log.Info("Enough participants for start new session")
 			}
 		case req := <-matcher.publishTicketRequests:
+			//check whether any participant has left session
+			if len(matcher.sessions) < matcher.cfg.MaxParticipants {
+				req.resp <- submitSplitTxRes{
+					err: ErrParticipantLeft,
+				}
+			}
 			_, _, err := matcher.addParticipantInput(&req)
 			if err != nil {
-				req.resp <- publishTicketResponse{
+				req.resp <- submitSplitTxRes{
 					err: err,
 				}
 			}
 		case req := <-matcher.submitSignedTxRequest:
+			//check whether any participant has left session
+			if len(matcher.sessions) < matcher.cfg.MaxParticipants {
+				req.resp <- submitSignedTxResponse{
+					err: ErrParticipantLeft,
+				}
+			}
+
 			err := matcher.mergeSignedInput(&req)
 			if err != nil {
 				req.resp <- submitSignedTxResponse{
@@ -136,6 +148,13 @@ func (matcher *Matcher) Run() error {
 				}
 			}
 		case req := <-matcher.publishedTxReq:
+			//check whether any participant has left session
+			if len(matcher.sessions) < matcher.cfg.MaxParticipants {
+				req.resp <- publishedTxRes{
+					err: ErrParticipantLeft,
+				}
+			}
+
 			err := matcher.publishTxResult(&req)
 			if err != nil {
 				req.resp <- publishedTxRes{
@@ -157,94 +176,28 @@ func (matcher *Matcher) startNewMergeSession() {
 	sess := &Session{
 		Participants: make([]*SessionParticipant, sessSize),
 	}
-	for i, r := range matcher.waitingParticipants {
-		id := matcher.newSessionID()
-		fmt.Println("startNewMergeSession - session ID ", id)
+	i := 0
+	for _, r := range matcher.waitingParticipants {
+		//id := matcher.newSessionID()
 		sessPart := &SessionParticipant{
 			Session: sess,
 			Index:   i,
-			ID:      id,
+			ID:      r.sessID,
 		}
-
 		sess.Participants[i] = sessPart
-		matcher.sessions[id] = sessPart
+		i++
+		matcher.sessions[r.sessID] = sessPart
 		r.resp <- addParticipantResponse{
 			participant: sessPart,
 		}
 	}
 
-	matcher.waitingParticipants = nil
+	matcher.waitingParticipants = make(map[SessionID]*addParticipantRequest)
 }
 
-//func (matcher *Matcher) enoughForNewSession(ticketPrice dcrutil.Amount) bool {
-//
-//	var availableSum uint64
-//
-//	for _, r := range matcher.waitingParticipants {
-//		availableSum += r.maxAmount
-//	}
-//
-//	ticketFee := SessionFeeEstimate(len(matcher.waitingParticipants))
-//	neededAmount := uint64(ticketPrice + ticketFee)
-//	return availableSum > neededAmount
-//}
-
-//func (matcher *Matcher) startNewSession(ticketPrice uint64) {
-//	numParts := len(matcher.waitingParticipants)
-//	//ticketFee := SessionFeeEstimate(numParts)
-//	//partFee := dcrutil.Amount(math.Ceil(float64(ticketFee) / float64(numParts)))
-//
-//
-//
-//
-//
-//	sess := &Session{
-//		Participants: make([]*SessionParticipant, numParts),
-//		//TicketPrice:  dcrutil.Amount(matcher.cfg.PriceProvider.CurrentTicketPrice()),
-//		//TicketPrice:  dcrutil.Amount(ticketPrice),
-//		//VoterIndex:   0, // FIXME: select voter index at random
-//	}
-//
-//	amountLeft := dcrutil.Amount(ticketPrice)
-//	for i, r := range matcher.waitingParticipants {
-//		amount := dcrutil.Amount(r.maxAmount) - partFee
-//		if amount > amountLeft {
-//			amount = amountLeft
-//		}
-//
-//		sessPart := &SessionParticipant{
-//			//Amount:  amount,
-//			//Fee:     partFee,
-//			Session: sess,
-//			Index:   i,
-//		}
-//		matcher.log.Infof("SessionParticipant: Amount=%s partFee=%s Index=%d",
-//			amount,
-//			partFee, i)
-//
-//		sess.Participants[i] = sessPart
-//
-//		id := matcher.newSessionID()
-//		matcher.sessions[id] = sessPart
-//		sessPart.ID = id
-//
-//		r.resp <- addParticipantResponse{
-//			participant: sessPart,
-//		}
-//
-//		amountLeft -= amount
-//	}
-//
-//	matcher.waitingParticipants = nil
-//}
-
-func (matcher *Matcher) newSessionID() SessionID {
-	// TODO: rw lock matcher.sessions here
-	id := MustRandInt32()
-	for _, has := matcher.sessions[SessionID(id)]; has; {
-		id = MustRandInt32()
-	}
-	return SessionID(id)
+func (matcher *Matcher) NewSessionID() SessionID {
+	id := xid.New()
+	return SessionID(id.String())
 }
 
 func (matcher *Matcher) mergeSignedInput(req *submitSignedTxRequest) error {
@@ -255,24 +208,20 @@ func (matcher *Matcher) mergeSignedInput(req *submitSignedTxRequest) error {
 	participant := matcher.sessions[req.sessionID]
 	participant.SignedTx = req.tx
 
-	//if len(participant.SignedTx.TxIn) != len(participant.InputIndes){
-	//	return ErrSessionNotFound
-	//}
-
 	participant.chanSubmitSignedTxResponse = req.resp
 
 	//if this is first participant session then assign splittx to MergedSplitTx
 	if participant.Session.SignedTx == nil {
-		fmt.Println("participant.Session.SignedTx == nil ")
 		participant.Session.SignedTx = req.tx.Copy()
 	}
+
+	//needs to random txout here
 
 	for _, i := range participant.InputIndes {
 		if participant.SignedTx.TxIn[i] == nil {
 			return errors.New("Submit invalid(nil) input")
 		}
 		participant.Session.SignedTx.TxIn[i] = participant.SignedTx.TxIn[i]
-		fmt.Println("index , script ", i, participant.Session.SignedTx.TxIn[i].SignatureScript)
 	}
 	for _, i := range participant.OutputIndes {
 		if participant.SignedTx.TxOut[i] == nil {
@@ -289,7 +238,6 @@ func (matcher *Matcher) mergeSignedInput(req *submitSignedTxRequest) error {
 			publisher := false
 			if i == randIndex {
 				publisher = true
-				fmt.Println("publisher randIndex", randIndex)
 				p.Publisher = publisher
 			}
 			p.chanSubmitSignedTxResponse <- submitSignedTxResponse{
@@ -321,14 +269,33 @@ func (matcher *Matcher) publishTxResult(req *publishedTxReq) error {
 				tx:  req.tx,
 				err: nil,
 			}
-			fmt.Println("publishTxResult ID ", p.ID)
 		}
 	}
 	return nil
 
 }
 
-func (matcher *Matcher) addParticipantInput(req *publishTicketRequest) ([]int32, []int32, error) {
+func (matcher *Matcher) RemoveSessionID(sessionID SessionID) error {
+	_, ok := matcher.sessions[sessionID]
+	if ok {
+		delete(matcher.sessions, sessionID)
+		log.Infof("Participant left, removed sessionID %v", sessionID)
+		return nil
+	}
+	return errors.New("SessionID does not exist")
+}
+
+func (matcher *Matcher) RemoveWaitingSessionID(sessionID SessionID) error {
+	_, ok := matcher.waitingParticipants[sessionID]
+	if ok {
+		delete(matcher.waitingParticipants, sessionID)
+		log.Infof("Participant disconnected. Removed sessionID %v from waiting queue", sessionID)
+		return nil
+	}
+	return errors.New("SessionID does not exist")
+}
+
+func (matcher *Matcher) addParticipantInput(req *submitSplitTxReq) ([]int32, []int32, error) {
 
 	if _, has := matcher.sessions[req.sessionID]; !has {
 		return nil, nil, ErrSessionNotFound
@@ -371,31 +338,28 @@ func (matcher *Matcher) addParticipantInput(req *publishTicketRequest) ([]int32,
 
 	participant.InputIndes = inputIndes
 	participant.OutputIndes = outputIndes
-	fmt.Println("Setting input for participant ", req.sessionID, inputIndes, outputIndes)
-	fmt.Println("MergedSplitTx. txin, txout", len(participant.Session.MergedSplitTx.TxIn), len(participant.Session.MergedSplitTx.TxOut))
 
 	if participant.Session.SubTxAdded() {
-		fmt.Println("[PublishTx]-All SubTxAdded are added for session")
+		log.Info("All participants submitted the split transaction, Sending merged split transactions back for each participant")
 		for _, p := range participant.Session.Participants {
-			fmt.Println("[PublishTx]-All SubTxAdded info", participant.InputIndes, participant.ID)
-			p.chanPublishTicketResponse <- publishTicketResponse{
+			p.chanPublishTicketResponse <- submitSplitTxRes{
 				err:         nil,
 				tx:          participant.Session.MergedSplitTx,
 				inputIndes:  p.InputIndes,
 				outputIndes: p.OutputIndes,
 			}
-			for _, txin := range p.Session.MergedSplitTx.TxIn {
-				fmt.Println("MergedSplitTx.TxIn ", txin.PreviousOutPoint.Hash, txin.PreviousOutPoint.Index)
-			}
-			for _, txout := range p.Session.MergedSplitTx.TxOut {
-				fmt.Println("MergedSplitTx.TxOut ", txout.Version, txout.Value)
-			}
+			//			for _, txin := range p.Session.MergedSplitTx.TxIn {
+			//				log.Debug("MergedSplitTx.TxIn ", txin.PreviousOutPoint.Hash, txin.PreviousOutPoint.Index)
+			//			}
+			//			for _, txout := range p.Session.MergedSplitTx.TxOut {
+			//				log.Debug("MergedSplitTx.TxOut ", txout.Version, txout.Value)
+			//			}
 		}
 	}
 	return inputIndes, outputIndes, nil
 }
 
-func (matcher *Matcher) AddParticipant(maxAmount uint64) (*SessionParticipant, error) {
+func (matcher *Matcher) AddParticipant(maxAmount uint64, sessID SessionID) (*SessionParticipant, error) {
 
 	if len(matcher.waitingParticipants) >= matcher.cfg.MaxParticipants {
 		return nil, ErrTooManyParticipants
@@ -403,6 +367,7 @@ func (matcher *Matcher) AddParticipant(maxAmount uint64) (*SessionParticipant, e
 
 	req := addParticipantRequest{
 		maxAmount: maxAmount,
+		sessID:    sessID,
 		resp:      make(chan addParticipantResponse),
 	}
 	matcher.addParticipantRequests <- req
@@ -414,15 +379,15 @@ func (matcher *Matcher) AddParticipant(maxAmount uint64) (*SessionParticipant, e
 // PublishTransaction validates the signed input provided by one of the
 // participants of the given session and publishes the transaction. It blocks
 // until all participants have sent their inputs
-func (matcher *Matcher) PublishTransaction(sessionID SessionID, splitTx *wire.MsgTx,
+func (matcher *Matcher) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
 	splitTxOutputIndex int, input *wire.TxIn) (*wire.MsgTx, []int32, []int32, error) {
 
-	req := publishTicketRequest{
+	req := submitSplitTxReq{
 		sessionID:          sessionID,
 		splitTx:            splitTx,
 		input:              input,
 		splitTxOutputIndex: splitTxOutputIndex,
-		resp:               make(chan publishTicketResponse),
+		resp:               make(chan submitSplitTxRes),
 	}
 
 	matcher.publishTicketRequests <- req
