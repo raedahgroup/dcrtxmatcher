@@ -107,7 +107,6 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 	for {
 		select {
 		case <-done:
-			fmt.Println("Done")
 			return resp, err
 		case <-ctx.Done():
 			//remove this sessionID
