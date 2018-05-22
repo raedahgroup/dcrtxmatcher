@@ -4,7 +4,10 @@
 [[projects]]
   branch = "master"
   name = "github.com/agl/ed25519"
-  packages = [".","edwards25519"]
+  packages = [
+    ".",
+    "edwards25519"
+  ]
   revision = "5312a61534124124185d41f09206b9fef1d88403"
 
 [[projects]]
@@ -12,6 +15,12 @@
   packages = ["."]
   revision = "c8d518a00eb65f58411f49c1c84ee99c02b699f5"
   version = "v1.0.2"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/btcsuite/btclog"
+  packages = ["."]
+  revision = "84c8d2346e9fc8c7b947e243b9c24e6df9fd206a"
 
 [[projects]]
   branch = "master"
@@ -27,21 +36,55 @@
 
 [[projects]]
   name = "github.com/decred/dcrd"
-  packages = ["chaincfg","chaincfg/chainec","chaincfg/chainhash","dcrec/edwards","dcrec/secp256k1","dcrec/secp256k1/schnorr","dcrutil","wire"]
+  packages = [
+    "chaincfg",
+    "chaincfg/chainec",
+    "chaincfg/chainhash",
+    "dcrec/edwards",
+    "dcrec/secp256k1",
+    "dcrec/secp256k1/schnorr",
+    "dcrutil",
+    "txscript",
+    "wire"
+  ]
   revision = "008e80bf8668544de4200a08927e95e5926439a0"
   version = "v1.1.2"
 
 [[projects]]
-  name = "github.com/golang/protobuf"
-  packages = ["proto","ptypes","ptypes/any","ptypes/duration","ptypes/timestamp"]
-  revision = "925541529c1fa6821df4e44ce2723319eb2be768"
-  version = "v1.0.0"
+  name = "github.com/decred/dcrwallet"
+  packages = ["version"]
+  revision = "a86ce5b04c84fc1800f79fb6b54665b2e85ce365"
+  version = "v1.2.0"
 
 [[projects]]
-  name = "github.com/op/go-logging"
+  branch = "master"
+  name = "github.com/golang/protobuf"
+  packages = [
+    "proto",
+    "ptypes",
+    "ptypes/any",
+    "ptypes/duration",
+    "ptypes/timestamp"
+  ]
+  revision = "70c277a8a150a8e069492e6600926300405c2884"
+
+[[projects]]
+  name = "github.com/jessevdk/go-flags"
   packages = ["."]
-  revision = "b2cb9fa56473e98db8caba80237377e83fe44db5"
-  version = "v1"
+  revision = "c6ca198ec95c841fdb89fc0de7496fed11ab854e"
+  version = "v1.4.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/jrick/logrotate"
+  packages = ["rotator"]
+  revision = "a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a"
+
+[[projects]]
+  name = "github.com/rs/xid"
+  packages = ["."]
+  revision = "02dd45c33376f85d1064355dc790dcc4850596b1"
+  version = "v1.1"
 
 [[projects]]
   branch = "master"
@@ -52,13 +95,36 @@
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
-  packages = ["context","http2","http2/hpack","idna","internal/timeseries","lex/httplex","trace"]
+  packages = [
+    "context",
+    "http2",
+    "http2/hpack",
+    "idna",
+    "internal/timeseries",
+    "lex/httplex",
+    "trace"
+  ]
   revision = "b417086c80e91bfa321ef761574721644b8b9f61"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
-  packages = ["collate","collate/build","internal/colltab","internal/gen","internal/tag","internal/triegen","internal/ucd","language","secure/bidirule","transform","unicode/bidi","unicode/cldr","unicode/norm","unicode/rangetable"]
+  packages = [
+    "collate",
+    "collate/build",
+    "internal/colltab",
+    "internal/gen",
+    "internal/tag",
+    "internal/triegen",
+    "internal/ucd",
+    "language",
+    "secure/bidirule",
+    "transform",
+    "unicode/bidi",
+    "unicode/cldr",
+    "unicode/norm",
+    "unicode/rangetable"
+  ]
   revision = "e19ae1496984b1c655b8044a65c0300a3c878dd3"
 
 [[projects]]
@@ -69,13 +135,36 @@
 
 [[projects]]
   name = "google.golang.org/grpc"
-  packages = [".","balancer","balancer/base","balancer/roundrobin","codes","connectivity","credentials","encoding","grpclb/grpc_lb_v1/messages","grpclog","internal","keepalive","metadata","naming","peer","resolver","resolver/dns","resolver/passthrough","stats","status","tap","transport"]
+  packages = [
+    ".",
+    "balancer",
+    "balancer/base",
+    "balancer/roundrobin",
+    "codes",
+    "connectivity",
+    "credentials",
+    "encoding",
+    "grpclb/grpc_lb_v1/messages",
+    "grpclog",
+    "internal",
+    "keepalive",
+    "metadata",
+    "naming",
+    "peer",
+    "resolver",
+    "resolver/dns",
+    "resolver/passthrough",
+    "stats",
+    "status",
+    "tap",
+    "transport"
+  ]
   revision = "6b51017f791ae1cfbec89c52efdf444b13b550ef"
   version = "v1.9.2"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f185fc5cf34e6fbbe7850257902f9e7d4145a0e0017f74951621cea22927f916"
+  inputs-digest = "1ae2e55cc090d4260e4794fb947f94fb215b394b3eab9a6c96ffba89f0b0bc89"
   solver-name = "gps-cdcl"
   solver-version = 1

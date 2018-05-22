@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/decred/dcrd/wire"
-	"github.com/xid"
+	"github.com/rs/xid"
 )
 
 func init() {
@@ -61,8 +61,6 @@ type (
 		submitSignedTxRequest  chan submitSignedTxRequest
 		publishedTxReq         chan publishedTxReq
 	}
-
-
 )
 
 // InputsSigned returns true if all participant already sent their signed input/output

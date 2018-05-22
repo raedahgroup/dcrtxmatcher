@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"bytes"
-	"fmt"
+	//"fmt"
 
 	"github.com/decred/dcrd/wire"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
