@@ -21,6 +21,9 @@ func main() {
 	cfg := &daemon.Config{
 		MaxParticipants: config.MaxParticipants,
 		Port:            config.Port,
+		RandomIndex:     config.RandomIndex,
+		JoinTicker:      config.JoinTicker,
+		WaitingTimer:    config.WaitingTimer,
 	}
 	daemon, err := daemon.NewDaemon(cfg)
 	if err != nil {

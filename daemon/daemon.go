@@ -24,6 +24,9 @@ func NewDaemon(cfg *Config) (*Daemon, error) {
 
 	mcfg := &matcher.Config{
 		MaxParticipants: cfg.MaxParticipants,
+		RandomIndex:     cfg.RandomIndex,
+		JoinTicker:      cfg.JoinTicker,
+		WaitingTimer:    cfg.WaitingTimer,
 	}
 	//set matcher config
 	d.matcher = matcher.NewMatcher(mcfg)

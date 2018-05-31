@@ -51,10 +51,10 @@ type (
 	submitSignedTxRequest struct {
 		sessionID SessionID
 		tx        *wire.MsgTx
-		resp      chan submitSignedTxResponse
+		resp      chan submitSignedTxRes
 	}
 
-	submitSignedTxResponse struct {
+	submitSignedTxRes struct {
 		tx        *wire.MsgTx
 		publisher bool
 		err       error

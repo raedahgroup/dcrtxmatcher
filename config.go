@@ -33,8 +33,11 @@ const (
 	defaultLogLevel        = "debug"
 	defaultLogDirname      = "logs"
 	defaultLogFilename     = "dcrtxmatcher.log"
-	defaultMaxParticipants = 2
+	defaultMaxParticipants = 4
 	defaultPort            = 8475
+	defaultRandomIndex     = true
+	defaultJoinTicker      = 120
+	defaultWaitingTimer    = 30
 )
 
 var (
@@ -52,6 +55,9 @@ type config struct {
 	LogDir          *util.ExplicitString `long:"logdir" description:"Directory to log output."`
 	MaxParticipants int                  `long:"maxparticipants" description:"max participants can join in a joint splittx session"`
 	Port            int                  `long:"port" description:"port dcrtxmatcher running on"`
+	RandomIndex     bool                 `short:"r" long:"randomindex" description:"option to decide random index of participants or not"`
+	JoinTicker      int                  `short:"j" long:"jointicker" description:"time in seconds server will perform joining"`
+	WaitingTimer    int                  `short:"t" long:"timer" description:"timeout in seconds for waiting submit data from client"`
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -202,6 +208,9 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		LogDir:          util.NewExplicitString(defaultLogDir),
 		MaxParticipants: defaultMaxParticipants,
 		Port:            defaultPort,
+		RandomIndex:     defaultRandomIndex,
+		JoinTicker:      defaultJoinTicker,
+		WaitingTimer:    defaultWaitingTimer,
 	}
 
 	// Pre-parse the command line options to see if an alternative config

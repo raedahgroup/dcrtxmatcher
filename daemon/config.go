@@ -5,10 +5,7 @@ package daemon
 type Config struct {
 	Port            int
 	MaxParticipants int
+	RandomIndex     bool
+	JoinTicker      int
+	WaitingTimer    int
 }
-
-// DefaultConfig stores the default, built-in config for the daemon
-//var DefaultConfig = &Config{
-//	Port:     8475,
-//	LogLevel: logging.INFO,
-//}
