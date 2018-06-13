@@ -6,12 +6,12 @@ import (
 )
 
 type (
-	addParticipantResponse struct {
+	addParticipantRes struct {
 		participant *SessionParticipant
 		err         error
 	}
 
-	setParticipantOutputsResponse struct {
+	setParticipantOutputsRes struct {
 		transaction  *wire.MsgTx
 		output_index int
 		err          error
@@ -26,18 +26,18 @@ type (
 )
 
 type (
-	addParticipantRequest struct {
+	addParticipantReq struct {
 		maxAmount uint64
 		sessID    SessionID
-		resp      chan addParticipantResponse
+		resp      chan addParticipantRes
 	}
 
-	setParticipantOutputsRequest struct {
+	setParticipantOutputsReq struct {
 		sessionID        SessionID
 		commitmentOutput *wire.TxOut
 		changeOutput     *wire.TxOut
 		voteAddress      *dcrutil.Address
-		resp             chan setParticipantOutputsResponse
+		resp             chan setParticipantOutputsRes
 	}
 
 	submitSplitTxReq struct {
@@ -48,7 +48,7 @@ type (
 		resp               chan submitSplitTxRes
 	}
 
-	submitSignedTxRequest struct {
+	submitSignedTxReq struct {
 		sessionID SessionID
 		tx        *wire.MsgTx
 		resp      chan submitSignedTxRes
@@ -69,7 +69,7 @@ type (
 		err error
 	}
 
-	publishSessionRequest struct {
+	publishSessionReq struct {
 		session *Session
 	}
 )

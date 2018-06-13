@@ -38,7 +38,8 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 		}()
 		sess, err = svc.matcher.AddParticipant(req.Amount, sessID)
 		if err != nil {
-			sess = nil
+			//sess = nil
+
 		}
 
 	}()
@@ -49,7 +50,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 			res := &pb.FindMatchesResponse{
 				SessionId: string(sess.ID),
 			}
-			return res, nil
+			return res, err
 		case <-ctx.Done():
 			svc.matcher.RemoveWaitingSessionID(sessID)
 			err = ctx.Err()

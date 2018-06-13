@@ -4,7 +4,7 @@ package daemon
 // matcher daemon
 type Config struct {
 	Port            int
-	MaxParticipants int
+	MinParticipants int
 	RandomIndex     bool
 	JoinTicker      int
 	WaitingTimer    int

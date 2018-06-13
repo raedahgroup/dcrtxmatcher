@@ -16,10 +16,10 @@ func main() {
 		return
 	}
 
-	log.Infof("MaxParticipants %d", config.MaxParticipants)
+	log.Infof("MinParticipants %d", config.MinParticipants)
 
 	cfg := &daemon.Config{
-		MaxParticipants: config.MaxParticipants,
+		MinParticipants: config.MinParticipants,
 		Port:            config.Port,
 		RandomIndex:     config.RandomIndex,
 		JoinTicker:      config.JoinTicker,

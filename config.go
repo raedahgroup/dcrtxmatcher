@@ -33,7 +33,7 @@ const (
 	defaultLogLevel        = "debug"
 	defaultLogDirname      = "logs"
 	defaultLogFilename     = "dcrtxmatcher.log"
-	defaultMaxParticipants = 4
+	defaultMinParticipants = 2
 	defaultPort            = 8475
 	defaultRandomIndex     = true
 	defaultJoinTicker      = 120
@@ -53,7 +53,7 @@ type config struct {
 	AppDataDir      *util.ExplicitString `short:"A" long:"appdata" description:"Application data directory for wallet config, databases and logs"`
 	DebugLevel      string               `short:"d" long:"debuglevel" description:"Logging level {trace, debug, info, warn, error, critical}"`
 	LogDir          *util.ExplicitString `long:"logdir" description:"Directory to log output."`
-	MaxParticipants int                  `long:"maxparticipants" description:"max participants can join in a joint splittx session"`
+	MinParticipants int                  `long:"minparticipants" description:"min participants required to start join splittx session"`
 	Port            int                  `long:"port" description:"port dcrtxmatcher running on"`
 	RandomIndex     bool                 `short:"r" long:"randomindex" description:"option to decide random index of participants or not"`
 	JoinTicker      int                  `short:"j" long:"jointicker" description:"time in seconds server will perform joining"`
@@ -206,7 +206,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		ConfigFile:      util.NewExplicitString(defaultConfigFile),
 		AppDataDir:      util.NewExplicitString(defaultAppDataDir),
 		LogDir:          util.NewExplicitString(defaultLogDir),
-		MaxParticipants: defaultMaxParticipants,
+		MinParticipants: defaultMinParticipants,
 		Port:            defaultPort,
 		RandomIndex:     defaultRandomIndex,
 		JoinTicker:      defaultJoinTicker,
