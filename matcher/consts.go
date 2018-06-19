@@ -41,16 +41,16 @@ const (
 )
 
 var (
-	ErrLowAmount                    = merry.New("Amount too low to participate in ticket purchase")
-	ErrTooManyParticipants          = merry.New("Too many online participants at the moment")
-	ErrSessionNotFound              = merry.New("Session with the provided ID not found")
-	ErrCommitmentValueDifferent     = merry.New("Commitment value is different than expected")
-	ErrNilCommitmentOutput          = merry.New("Nil commitment output provided")
-	ErrNilChangeOutput              = merry.New("Nil change output provided")
-	ErrFeeTooLow                    = merry.New("Provided tx fee is too low")
-	ErrIndexNotFound                = merry.New("Index not found")
-	ErrSplitValueInputValueMismatch = merry.New("Amount of split tx output and ValueIn of ticket input are different")
-	ErrParticipantLeft              = merry.New("One participant has left session")
+	ErrLowAmount           = merry.New("Amount too low to participate in ticket purchase")
+	ErrTooManyParticipants = merry.New("Too many online participants at the moment")
+	ErrSessionNotFound     = merry.New("Session with the provided ID not found")
+	ErrSessionIDNotFound   = merry.New("SessionID is not found")
+	ErrNilCommitmentOutput = merry.New("Nil commitment output provided")
+	ErrNilChangeOutput     = merry.New("Nil change output provided")
+	ErrInvalidRequest      = merry.New("Invalid request")
+	ErrIndexNotFound       = merry.New("Index not found")
+	ErrPublishTxNotSent    = merry.New("Published transaction is not sent to server")
+	ErrParticipantLeft     = merry.New("One participant has left session")
 )
 
 // SessionParticipantFee returns the fee that a single participant of a ticket

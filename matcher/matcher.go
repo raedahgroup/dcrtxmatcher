@@ -13,6 +13,14 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+const (
+	Waiting_Participant = iota + 1
+	Waiting_Raw_Tx
+	Waiting_Signed_Tx
+	Waiting_Publish_Tx
+	Completed
+)
+
 type (
 	// SessionID stores the unique id for an in-progress join split tx session
 	SessionID string
@@ -66,6 +74,7 @@ type (
 
 		sessionTicker *time.Ticker
 		clientTimeout *time.Timer
+		progress      int
 	}
 )
 
@@ -101,8 +110,7 @@ func (sess *Session) CheckTxSubmitted() bool {
 
 func NewMatcher(cfg *Config) *Matcher {
 	m := &Matcher{
-		cfg: cfg,
-		//sessions:            make(map[SessionID]*SessionParticipant),
+		cfg:                 cfg,
 		waitingParticipants: make(map[SessionID]*addParticipantReq),
 		addParticipantReq:   make(chan addParticipantReq),
 		submitSplitTxReq:    make(chan submitSplitTxReq),
@@ -110,9 +118,9 @@ func NewMatcher(cfg *Config) *Matcher {
 		publishedTxReq:      make(chan publishedTxReq),
 		sessionTicker:       time.NewTicker(time.Second * time.Duration(cfg.JoinTicker)),
 		clientTimeout:       time.NewTimer(time.Second * time.Duration(cfg.JoinTicker)),
+		progress:            Waiting_Participant,
 	}
 
-	//m.addParticipantReq = make(chan addParticipantReq, cfg.MinParticipants)
 	return m
 }
 
@@ -122,20 +130,42 @@ func (matcher *Matcher) Run() error {
 
 		select {
 		case req := <-matcher.addParticipantReq:
-			matcher.waitingParticipants[req.sessID] = &req
-
+			// validate the grpc request with current matching progress
+			if matcher.progress != Waiting_Participant {
+				req.resp <- addParticipantRes{
+					err: ErrInvalidRequest,
+				}
+			} else {
+				matcher.waitingParticipants[req.sessID] = &req
+			}
 		case <-matcher.sessionTicker.C:
-			matcher.startJoinSession()
-
+			if matcher.progress == Waiting_Participant {
+				matcher.startJoinSession()
+			}
 		case <-matcher.clientTimeout.C:
-			//log.Info("Waiting timer reached")
 			//check participants who missing inputs and remove
 			missedP := make([]SessionID, 0)
 			if matcher.SessionData != nil {
-				for sid, p := range matcher.SessionData.Participants {
-					if p.SplitTx == nil {
-						missedP = append(missedP, sid)
+				switch matcher.progress {
+				case Waiting_Raw_Tx:
+					for sid, p := range matcher.SessionData.Participants {
+						if p.SplitTx == nil {
+							missedP = append(missedP, sid)
+							log.Infof("Session progress Waiting_Raw_Tx. sessionID %v not sending raw tx data", sid)
+						}
 					}
+					break
+
+				case Waiting_Signed_Tx:
+					for sid, p := range matcher.SessionData.Participants {
+						if p.SignedTx == nil {
+							missedP = append(missedP, sid)
+							log.Infof("Session progress Waiting_Signed_Tx. sessionID %v not sending signed tx data", sid)
+						}
+					}
+					break
+				case Waiting_Publish_Tx:
+					break
 				}
 			}
 
@@ -148,27 +178,45 @@ func (matcher *Matcher) Run() error {
 
 		case req := <-matcher.submitSplitTxReq:
 
-			//log.Info("matcher.submitSplitTxRequest")
-			_, _, err := matcher.addParticipantInput(&req)
-			if err != nil {
+			// validate the grpc request with current matching progress
+			if matcher.progress != Waiting_Raw_Tx {
 				req.resp <- submitSplitTxRes{
-					err: err,
+					err: ErrInvalidRequest,
+				}
+			} else {
+				_, _, err := matcher.addParticipantInput(&req)
+				if err != nil {
+					req.resp <- submitSplitTxRes{
+						err: err,
+					}
 				}
 			}
 		case req := <-matcher.submitSignedTxReq:
-
-			err := matcher.mergeSignedInput(&req)
-			if err != nil {
+			// validate the grpc request with current matching progress
+			if matcher.progress != Waiting_Signed_Tx {
 				req.resp <- submitSignedTxRes{
-					err: err,
+					err: ErrInvalidRequest,
+				}
+			} else {
+				err := matcher.mergeSignedInput(&req)
+				if err != nil {
+					req.resp <- submitSignedTxRes{
+						err: err,
+					}
 				}
 			}
 		case req := <-matcher.publishedTxReq:
-
-			err := matcher.publishTxResult(&req)
-			if err != nil {
+			// validate the grpc request with current matching progress
+			if matcher.progress != Waiting_Publish_Tx {
 				req.resp <- publishedTxRes{
-					err: err,
+					err: ErrInvalidRequest,
+				}
+			} else {
+				err := matcher.publishTxResult(&req)
+				if err != nil {
+					req.resp <- publishedTxRes{
+						err: err,
+					}
 				}
 			}
 		}
@@ -185,7 +233,7 @@ func (matcher *Matcher) startJoinSession() {
 	if sessSize == 0 {
 		return
 	}
-	// there is only one participants
+	// there is only one participant, then returns error for client to purchase locally
 	if sessSize == 1 {
 		log.Info("Only one participant, returns error for client purchasing locally")
 		for _, r := range matcher.waitingParticipants {
@@ -227,6 +275,8 @@ func (matcher *Matcher) startJoinSession() {
 			participant: sessPart,
 		}
 	}
+	//update progress
+	matcher.progress = Waiting_Raw_Tx
 	//add timer for waiting participants send inputs
 	matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
 
@@ -282,8 +332,8 @@ func (matcher *Matcher) mergeSignedInput(req *submitSignedTxReq) error {
 				publisher: publisher,
 			}
 			i++
-
 		}
+		matcher.progress = Waiting_Publish_Tx
 	}
 	return nil
 }
@@ -299,17 +349,26 @@ func (matcher *Matcher) publishTxResult(req *publishedTxReq) error {
 
 	if req.tx != nil && participant.Publisher {
 		matcher.SessionData.PublishedTx = req.tx
-		log.Infof("Joined split tx hash %v", req.tx.TxHash())
+		log.Infof("Joined split transaction hash %v", req.tx.TxHash())
 	}
 
 	if matcher.SessionData.CheckAllSentPublished() {
 		for _, p := range matcher.SessionData.Participants {
-			p.chanPublishedTxRes <- publishedTxRes{
-				tx:  req.tx,
-				err: nil,
+			if matcher.SessionData.PublishedTx != nil {
+				p.chanPublishedTxRes <- publishedTxRes{
+					tx:  matcher.SessionData.PublishedTx,
+					err: nil,
+				}
+			} else {
+				p.chanPublishedTxRes <- publishedTxRes{
+					tx:  nil,
+					err: ErrPublishTxNotSent,
+				}
 			}
 		}
 		log.Info("Sent joined transaction to all participants for purchasing tickets")
+		//update progress to waiting participant for next session
+		matcher.progress = Waiting_Participant
 	}
 
 	return nil
@@ -323,7 +382,7 @@ func (matcher *Matcher) RemoveSessionID(sessionID SessionID) error {
 		log.Infof("Participant left, removed sessionID %v", sessionID)
 		return nil
 	}
-	return errors.New("SessionID does not exist")
+	return ErrSessionIDNotFound
 }
 
 func (matcher *Matcher) RemoveWaitingSessionID(sessionID SessionID) error {
@@ -333,7 +392,7 @@ func (matcher *Matcher) RemoveWaitingSessionID(sessionID SessionID) error {
 		log.Infof("Participant disconnected. Removed sessionID %v from waiting queue", sessionID)
 		return nil
 	}
-	return errors.New("SessionID does not exist")
+	return ErrSessionIDNotFound
 }
 
 func (matcher *Matcher) addParticipantInput(req *submitSplitTxReq) ([]int32, []int32, error) {
@@ -347,8 +406,6 @@ func (matcher *Matcher) addParticipantInput(req *submitSplitTxReq) ([]int32, []i
 
 	participant := matcher.SessionData.Participants[req.sessionID]
 	participant.SplitTx = req.splitTx
-
-	//log.Infof("addParticipantInput %v", req.sessionID)
 
 	participant.chanSubmitSplitTxRes = req.resp
 
@@ -456,6 +513,10 @@ func (matcher *Matcher) SendTxData() {
 				outputIndes: p.OutputIndes,
 			}
 		}
+		//update progress
+		matcher.progress = Waiting_Signed_Tx
+		//add timer for waiting participants send signed split tx
+		matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
 	} else {
 
 		for _, p := range matcher.SessionData.Participants {
@@ -466,14 +527,12 @@ func (matcher *Matcher) SendTxData() {
 				outputIndes: p.OutputIndes,
 			}
 		}
+		//add timer for waiting participants send signed split tx
+		matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
 	}
 }
 
 func (matcher *Matcher) AddParticipant(maxAmount uint64, sessID SessionID) (*SessionParticipant, error) {
-
-	if len(matcher.waitingParticipants) >= matcher.cfg.MinParticipants {
-		return nil, ErrTooManyParticipants
-	}
 
 	req := addParticipantReq{
 		maxAmount: maxAmount,
@@ -488,7 +547,7 @@ func (matcher *Matcher) AddParticipant(maxAmount uint64, sessID SessionID) (*Ses
 
 // PublishTransaction validates the signed input provided by one of the
 // participants of the given session and publishes the transaction. It blocks
-// until all participants have sent their inputs
+// until all participants sent their inputs
 func (matcher *Matcher) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
 	splitTxOutputIndex int, input *wire.TxIn) (*wire.MsgTx, []int32, []int32, error) {
 
