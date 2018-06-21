@@ -233,9 +233,9 @@ func (matcher *Matcher) startJoinSession() {
 	if sessSize == 0 {
 		return
 	}
-	// there is only one participant, then returns error for client to purchase locally
+	// there is only one participant, then returns for client to purchase locally
 	if sessSize == 1 {
-		log.Info("Only one participant, returns error for client purchasing locally")
+		log.Info("Only one participant, returns for client purchasing locally")
 		for _, r := range matcher.waitingParticipants {
 			sessPart := &SessionParticipant{
 				Session: matcher.SessionData,

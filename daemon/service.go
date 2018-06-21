@@ -37,9 +37,6 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 			done <- true
 		}()
 		sess, err = svc.matcher.AddParticipant(req.Amount, sessID)
-		if err != nil {
-			log.Errorf("Err %v returns from matcher.AddParticipant", err)
-		}
 
 	}()
 
