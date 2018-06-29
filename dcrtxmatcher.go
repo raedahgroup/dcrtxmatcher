@@ -20,10 +20,7 @@ func main() {
 	go shutdownListener()
 
 	if err := run(ctx); err != nil && err != context.Canceled {
-		log.Info("Shutdown...")
 		os.Exit(1)
-	} else {
-		log.Info("Shutdown..")
 	}
 }
 
