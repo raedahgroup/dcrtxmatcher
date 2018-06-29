@@ -38,6 +38,7 @@ const (
 	defaultRandomIndex     = true
 	defaultJoinTicker      = 120
 	defaultWaitingTimer    = 30
+	defaultCompleteJoin    = true
 )
 
 var (
@@ -58,6 +59,7 @@ type config struct {
 	RandomIndex     bool                 `short:"r" long:"randomindex" description:"option to decide random index of participants or not"`
 	JoinTicker      int                  `short:"j" long:"jointicker" description:"time in seconds server will perform joining"`
 	WaitingTimer    int                  `short:"t" long:"timer" description:"timeout in seconds for waiting submit data from client"`
+	CompleteJoin    bool                 `long:"completejoin" description:"option to decide complete join ticket is in progress or not"`
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -211,6 +213,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		RandomIndex:     defaultRandomIndex,
 		JoinTicker:      defaultJoinTicker,
 		WaitingTimer:    defaultWaitingTimer,
+		CompleteJoin:    defaultCompleteJoin,
 	}
 
 	// Pre-parse the command line options to see if an alternative config

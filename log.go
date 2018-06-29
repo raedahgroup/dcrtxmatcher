@@ -12,7 +12,6 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
-	"github.com/raedahgroup/dcrtxmatcher/daemon"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 )
 
@@ -50,7 +49,7 @@ var (
 // Initialize package-global logger variables.
 func init() {
 	matcher.UseLogger(log)
-	daemon.UseLogger(log)
+	//daemon.UseLogger(log)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.

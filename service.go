@@ -1,7 +1,9 @@
-package daemon
+package main
 
 import (
 	"bytes"
+
+	"google.golang.org/grpc/metadata"
 	//"fmt"
 
 	"github.com/decred/dcrd/wire"
@@ -12,12 +14,12 @@ import (
 )
 
 type SplitTxMatcherService struct {
-	matcher *matcher.Matcher
+	ticketJoiner *matcher.TicketJoiner
 }
 
-func NewSplitTxMatcherService(matcher *matcher.Matcher) *SplitTxMatcherService {
+func NewSplitTxMatcherService(ticketJoiner *matcher.TicketJoiner) *SplitTxMatcherService {
 	return &SplitTxMatcherService{
-		matcher: matcher,
+		ticketJoiner: ticketJoiner,
 	}
 }
 
@@ -26,9 +28,14 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 	var sess *matcher.SessionParticipant
 	var err error
 
-	sessID := svc.matcher.NewSessionID()
+	sessID := svc.ticketJoiner.NewSessionID()
 
-	log.Infof("SessionID %v requests join  ", sessID)
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		md = metadata.New(nil)
+	}
+
+	log.Infof("SessionID %v - %v requests join", sessID, md[":authority"])
 
 	done := make(chan bool)
 
@@ -36,7 +43,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 		defer func() {
 			done <- true
 		}()
-		sess, err = svc.matcher.AddParticipant(req.Amount, sessID)
+		sess, err = svc.ticketJoiner.AddParticipant(req.Amount, sessID)
 
 	}()
 
@@ -51,7 +58,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 			}
 			return res, nil
 		case <-ctx.Done():
-			svc.matcher.RemoveWaitingSessionID(sessID)
+			svc.ticketJoiner.RemoveWaitingSessionID(sessID)
 			err = ctx.Err()
 			return nil, err
 		}
@@ -79,7 +86,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 		defer func() {
 			done <- true
 		}()
-		ticket, inputIds, outputIds, err = svc.matcher.SubmitSplitTx(matcher.SessionID(req.SessionId), splitTx,
+		ticket, inputIds, outputIds, err = svc.ticketJoiner.SubmitSplitTx(matcher.SessionID(req.SessionId), splitTx,
 			int(0), nil)
 		if err != nil {
 			log.Debugf("matcher.PublishTransaction error %v", err)
@@ -94,7 +101,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 			resp = nil
 			return
 		}
-		//log.Debugf("PublishTicketResponse sent")
+
 		resp = &pb.SubmitInputTxRes{
 			TicketTx:  buff.Bytes(),
 			InputsIds: inputIds,
@@ -110,7 +117,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 			return resp, err
 		case <-ctx.Done():
 			//remove this sessionID
-			svc.matcher.RemoveSessionID(matcher.SessionID(req.SessionId))
+			svc.ticketJoiner.RemoveSessionID(matcher.SessionID(req.SessionId))
 			err = ctx.Err()
 			return nil, err
 		}
@@ -137,7 +144,7 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 		tx := wire.NewMsgTx()
 		tx.BtcDecode(splitBuff, 0)
 
-		ticket, publisher, err := svc.matcher.SubmitSignedTransaction(matcher.SessionID(req.SessionId), tx)
+		ticket, publisher, err := svc.ticketJoiner.SubmitSignedTransaction(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
 			log.Errorf("matcher.SubmitSignedTransaction error %v ", err)
 			errn = err
@@ -150,7 +157,6 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 		if err != nil {
 			errn = err
 			return
-			//return nil, err
 		}
 
 		resp = &pb.SignTransactionResponse{
@@ -167,7 +173,7 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 
 		case <-ctx.Done():
 			//remove this sessionID
-			svc.matcher.RemoveSessionID(matcher.SessionID(req.SessionId))
+			svc.ticketJoiner.RemoveSessionID(matcher.SessionID(req.SessionId))
 			return nil, ctx.Err()
 		}
 	}
@@ -190,7 +196,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 			tx.BtcDecode(txResult, 0)
 		}
 
-		publishedTx, err = svc.matcher.PublishResult(matcher.SessionID(req.SessionId), tx)
+		publishedTx, err = svc.ticketJoiner.PublishResult(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
 			log.Debugf("matcher.BtcEncode error %v", err)
 			return
@@ -213,7 +219,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 			return resp, err
 
 		case <-ctx.Done():
-			svc.matcher.RemoveSessionID(matcher.SessionID(req.SessionId))
+			svc.ticketJoiner.RemoveSessionID(matcher.SessionID(req.SessionId))
 			return nil, ctx.Err()
 		}
 	}

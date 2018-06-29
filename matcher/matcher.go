@@ -2,7 +2,9 @@ package matcher
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
+	//"sync"
 	"time"
 
 	"github.com/decred/dcrd/wire"
@@ -62,7 +64,7 @@ type (
 	}
 
 	// Matcher is the main engine for matching operations
-	Matcher struct {
+	TicketJoiner struct {
 		cfg                 *Config
 		waitingParticipants map[SessionID]*addParticipantReq
 		SessionData         *Session
@@ -75,6 +77,7 @@ type (
 		sessionTicker *time.Ticker
 		clientTimeout *time.Timer
 		progress      int
+		done          chan bool
 	}
 )
 
@@ -108,8 +111,8 @@ func (sess *Session) CheckTxSubmitted() bool {
 	return true
 }
 
-func NewMatcher(cfg *Config) *Matcher {
-	m := &Matcher{
+func NewTicketJoiner(cfg *Config) *TicketJoiner {
+	m := &TicketJoiner{
 		cfg:                 cfg,
 		waitingParticipants: make(map[SessionID]*addParticipantReq),
 		addParticipantReq:   make(chan addParticipantReq),
@@ -119,19 +122,22 @@ func NewMatcher(cfg *Config) *Matcher {
 		sessionTicker:       time.NewTicker(time.Second * time.Duration(cfg.JoinTicker)),
 		clientTimeout:       time.NewTimer(time.Second * time.Duration(cfg.JoinTicker)),
 		progress:            Waiting_Participant,
+		done:                make(chan bool, 1),
 	}
 
 	return m
 }
 
 // Run listens for all matcher messages and runs the matching engine.
-func (matcher *Matcher) Run() error {
+func (matcher *TicketJoiner) Run() error {
+
 	for {
 
 		select {
 		case req := <-matcher.addParticipantReq:
 			// validate the grpc request with current matching progress
 			if matcher.progress != Waiting_Participant {
+				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "Waiting_Participant", matcher.progress)
 				req.resp <- addParticipantRes{
 					err: ErrInvalidRequest,
 				}
@@ -141,6 +147,8 @@ func (matcher *Matcher) Run() error {
 		case <-matcher.sessionTicker.C:
 			if matcher.progress == Waiting_Participant {
 				matcher.startJoinSession()
+			} else {
+				log.Infof("Wrong progress %v, can not start session", matcher.progress)
 			}
 		case <-matcher.clientTimeout.C:
 			//check participants who missing inputs and remove
@@ -171,7 +179,7 @@ func (matcher *Matcher) Run() error {
 
 			if len(missedP) > 0 {
 				for _, sid := range missedP {
-					log.Infof("Timeout. Remove sessionID %v from Session", sid)
+					log.Infof("Timeout. Client with sessionID %v stopped responding", sid)
 					delete(matcher.SessionData.Participants, sid)
 				}
 			}
@@ -180,20 +188,26 @@ func (matcher *Matcher) Run() error {
 
 			// validate the grpc request with current matching progress
 			if matcher.progress != Waiting_Raw_Tx {
+				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "Waiting_Raw_Tx", matcher.progress)
 				req.resp <- submitSplitTxRes{
 					err: ErrInvalidRequest,
 				}
 			} else {
+
 				_, _, err := matcher.addParticipantInput(&req)
 				if err != nil {
 					req.resp <- submitSplitTxRes{
 						err: err,
 					}
 				}
+
+				//				log.Info("Sleep 10 seconds for test")
+				//				time.Sleep(time.Second * 10)
 			}
 		case req := <-matcher.submitSignedTxReq:
 			// validate the grpc request with current matching progress
 			if matcher.progress != Waiting_Signed_Tx {
+				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "Waiting_Signed_Tx", matcher.progress)
 				req.resp <- submitSignedTxRes{
 					err: ErrInvalidRequest,
 				}
@@ -208,6 +222,7 @@ func (matcher *Matcher) Run() error {
 		case req := <-matcher.publishedTxReq:
 			// validate the grpc request with current matching progress
 			if matcher.progress != Waiting_Publish_Tx {
+				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "Waiting_Publish_Tx", matcher.progress)
 				req.resp <- publishedTxRes{
 					err: ErrInvalidRequest,
 				}
@@ -223,36 +238,30 @@ func (matcher *Matcher) Run() error {
 	}
 }
 
-//check wether enough users to start merge splittx
-func (matcher *Matcher) enoughForMergeTx() bool {
-	return len(matcher.waitingParticipants) == matcher.cfg.MinParticipants
+func (matcher *TicketJoiner) Stop(completeJoin bool) {
+	//if enable complete join option, so server will wait until join completes
+	if completeJoin {
+		if matcher.progress != Waiting_Participant && len(matcher.SessionData.Participants) >= matcher.cfg.MinParticipants {
+
+			log.Info("Waiting for join session completes...")
+
+			<-matcher.done
+			log.Debug("Stop unblock, done!")
+
+		}
+	} else {
+		//matcher.progress = Completed
+	}
 }
 
-func (matcher *Matcher) startJoinSession() {
+func (matcher *TicketJoiner) startJoinSession() {
 	sessSize := len(matcher.waitingParticipants)
 	if sessSize == 0 {
 		return
 	}
-	// there is only one participant, then returns for client to purchase locally
-	if sessSize == 1 {
-		log.Info("Only one participant, returns for client purchasing locally")
-		for _, r := range matcher.waitingParticipants {
-			sessPart := &SessionParticipant{
-				Session: matcher.SessionData,
-				Index:   0,
-				ID:      r.sessID,
-			}
-			r.resp <- addParticipantRes{
-				participant: sessPart,
-				err:         errors.New("One participant only"),
-			}
-		}
-		matcher.waitingParticipants = make(map[SessionID]*addParticipantReq)
-		return
-	}
 
 	if sessSize < matcher.cfg.MinParticipants {
-		log.Infof("Number participants %d, not enough minimum required %d, waiting a moment", sessSize, matcher.cfg.MinParticipants)
+		log.Infof("Number participants %d, will wait for minimum %d", sessSize, matcher.cfg.MinParticipants)
 		return
 	}
 
@@ -283,12 +292,12 @@ func (matcher *Matcher) startJoinSession() {
 	matcher.waitingParticipants = make(map[SessionID]*addParticipantReq)
 }
 
-func (matcher *Matcher) NewSessionID() SessionID {
+func (matcher *TicketJoiner) NewSessionID() SessionID {
 	id := xid.New()
 	return SessionID(id.String())
 }
 
-func (matcher *Matcher) mergeSignedInput(req *submitSignedTxReq) error {
+func (matcher *TicketJoiner) mergeSignedInput(req *submitSignedTxReq) error {
 
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
 		return ErrSessionNotFound
@@ -302,16 +311,18 @@ func (matcher *Matcher) mergeSignedInput(req *submitSignedTxReq) error {
 	if matcher.SessionData.SignedTx == nil {
 		matcher.SessionData.SignedTx = req.tx.Copy()
 	}
+	msg := fmt.Sprintf("SessionID %v submit invalid(nil) input", participant.ID)
 
 	for _, i := range participant.InputIndes {
 		if participant.SignedTx.TxIn[i] == nil {
-			return errors.New("Submit invalid(nil) input")
+
+			return errors.New(msg)
 		}
 		matcher.SessionData.SignedTx.TxIn[i] = participant.SignedTx.TxIn[i]
 	}
 	for _, i := range participant.OutputIndes {
 		if participant.SignedTx.TxOut[i] == nil {
-			return errors.New("Submit invalid(nil) input")
+			return errors.New(msg)
 		}
 		matcher.SessionData.SignedTx.TxOut[i] = participant.SignedTx.TxOut[i]
 	}
@@ -338,7 +349,7 @@ func (matcher *Matcher) mergeSignedInput(req *submitSignedTxReq) error {
 	return nil
 }
 
-func (matcher *Matcher) publishTxResult(req *publishedTxReq) error {
+func (matcher *TicketJoiner) publishTxResult(req *publishedTxReq) error {
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
 		return ErrSessionNotFound
 	}
@@ -366,36 +377,42 @@ func (matcher *Matcher) publishTxResult(req *publishedTxReq) error {
 				}
 			}
 		}
-		log.Info("Sent joined transaction to all participants for purchasing tickets")
+		if matcher.SessionData.PublishedTx != nil {
+			log.Info("Sent joined transaction to all participants for purchasing tickets")
+		}
 		//update progress to waiting participant for next session
 		matcher.progress = Waiting_Participant
+
+		//mark join session is done
+		matcher.done <- true
+
 	}
 
 	return nil
 
 }
 
-func (matcher *Matcher) RemoveSessionID(sessionID SessionID) error {
+func (matcher *TicketJoiner) RemoveSessionID(sessionID SessionID) error {
 	_, ok := matcher.SessionData.Participants[sessionID]
 	if ok {
 		delete(matcher.SessionData.Participants, sessionID)
-		log.Infof("Participant left, removed sessionID %v", sessionID)
+		log.Infof("SessionID %v disconnected, remove from join session", sessionID)
 		return nil
 	}
 	return ErrSessionIDNotFound
 }
 
-func (matcher *Matcher) RemoveWaitingSessionID(sessionID SessionID) error {
+func (matcher *TicketJoiner) RemoveWaitingSessionID(sessionID SessionID) error {
 	_, ok := matcher.waitingParticipants[sessionID]
 	if ok {
 		delete(matcher.waitingParticipants, sessionID)
-		log.Infof("Participant disconnected. Removed sessionID %v from waiting queue", sessionID)
+		log.Infof("SessionID %v disconnected, remove from waiting queue", sessionID)
 		return nil
 	}
 	return ErrSessionIDNotFound
 }
 
-func (matcher *Matcher) addParticipantInput(req *submitSplitTxReq) ([]int32, []int32, error) {
+func (matcher *TicketJoiner) addParticipantInput(req *submitSplitTxReq) ([]int32, []int32, error) {
 
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
 		return nil, nil, ErrSessionNotFound
@@ -447,7 +464,7 @@ func (matcher *Matcher) addParticipantInput(req *submitSplitTxReq) ([]int32, []i
 	return inputIndes, outputIndes, nil
 }
 
-func (matcher *Matcher) SendTxData() {
+func (matcher *TicketJoiner) SendTxData() {
 	log.Info("All participants submitted the split transaction, sending the joined split transactions back to each participant")
 	//needs to random index here
 	if matcher.cfg.RandomIndex && len(matcher.SessionData.Participants) > 1 {
@@ -532,7 +549,7 @@ func (matcher *Matcher) SendTxData() {
 	}
 }
 
-func (matcher *Matcher) AddParticipant(maxAmount uint64, sessID SessionID) (*SessionParticipant, error) {
+func (matcher *TicketJoiner) AddParticipant(maxAmount uint64, sessID SessionID) (*SessionParticipant, error) {
 
 	req := addParticipantReq{
 		maxAmount: maxAmount,
@@ -548,7 +565,7 @@ func (matcher *Matcher) AddParticipant(maxAmount uint64, sessID SessionID) (*Ses
 // PublishTransaction validates the signed input provided by one of the
 // participants of the given session and publishes the transaction. It blocks
 // until all participants sent their inputs
-func (matcher *Matcher) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
+func (matcher *TicketJoiner) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
 	splitTxOutputIndex int, input *wire.TxIn) (*wire.MsgTx, []int32, []int32, error) {
 
 	req := submitSplitTxReq{
@@ -566,7 +583,7 @@ func (matcher *Matcher) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
 
 // SubmitSignedTransaction get signed inputs from parti and
 // merge to one transaction
-func (matcher *Matcher) SubmitSignedTransaction(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, bool, error) {
+func (matcher *TicketJoiner) SubmitSignedTransaction(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, bool, error) {
 
 	req := submitSignedTxReq{
 		sessionID: sessionID,
@@ -581,7 +598,7 @@ func (matcher *Matcher) SubmitSignedTransaction(sessionID SessionID, signedTx *w
 
 // PublishResult get signed inputs from participant and
 // get the published one and send for other participants
-func (matcher *Matcher) PublishResult(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, error) {
+func (matcher *TicketJoiner) PublishResult(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, error) {
 
 	req := publishedTxReq{
 		sessionID: sessionID,
