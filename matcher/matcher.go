@@ -260,7 +260,7 @@ func (matcher *TicketJoiner) Stop(completeJoin bool) {
 func (matcher *TicketJoiner) startJoinSession() {
 	sessSize := len(matcher.waitingParticipants)
 	if sessSize == 0 {
-		log.Info("sessSize == 0")
+		log.Info("None participants joins")
 		return
 	}
 
