@@ -124,6 +124,7 @@ func NewTicketJoiner(cfg *Config) *TicketJoiner {
 		progress:            Waiting_Participant,
 		done:                make(chan bool, 1),
 	}
+	//log time will start join transaction
 
 	return m
 }
@@ -150,6 +151,8 @@ func (matcher *TicketJoiner) Run() error {
 			} else {
 				log.Infof("Wrong progress %v, can not start session", matcher.progress)
 			}
+			//log time will start join transaction
+
 		case <-matcher.clientTimeout.C:
 			//check participants who missing inputs and remove
 			missedP := make([]SessionID, 0)
@@ -257,6 +260,7 @@ func (matcher *TicketJoiner) Stop(completeJoin bool) {
 func (matcher *TicketJoiner) startJoinSession() {
 	sessSize := len(matcher.waitingParticipants)
 	if sessSize == 0 {
+		log.Info("sessSize == 0")
 		return
 	}
 
@@ -384,7 +388,7 @@ func (matcher *TicketJoiner) publishTxResult(req *publishedTxReq) error {
 		matcher.progress = Waiting_Participant
 
 		//mark join session is done
-		matcher.done <- true
+		//matcher.done <- true
 
 	}
 

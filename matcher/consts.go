@@ -5,7 +5,6 @@ import (
 
 	"github.com/ansel1/merry"
 	"github.com/decred/dcrd/dcrutil"
-	"github.com/decred/dcrd/txscript"
 )
 
 const (
@@ -26,18 +25,6 @@ const (
 	// TicketFeeEstimate is the fee rate estimate (in dcr/byte) of the fee in
 	// a ticket purchase
 	TicketFeeEstimate float64 = 0.001 / 1000
-
-	// ParticipantFeeOverheadEstimate is how much more than what is strictly
-	// necessary for the ticket purchase each participant should have to
-	// purchase the tickets
-	ParticipantFeeOverheadEstimate dcrutil.Amount = 2 * 1e5
-
-	// InputVmValidationFlags are the flags used when creating the vm that
-	// validates ticket inputs agains split transactions
-	InputVmValidationFlags = txscript.ScriptBip16 |
-		txscript.ScriptVerifyMinimalData |
-		txscript.ScriptVerifySigPushOnly |
-		txscript.ScriptVerifySHA256
 )
 
 var (
