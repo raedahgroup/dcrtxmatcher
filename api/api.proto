@@ -17,24 +17,27 @@ message FindMatchesRequest {
 
 message FindMatchesResponse {
     string session_id = 1;
+	string join_id = 2;
 }
 
 
 message SubmitInputTxReq {
     string session_id = 1;
-    bytes split_tx = 2;
+	string join_id = 2;
+    bytes split_tx = 3;
 }
 
 message SubmitInputTxRes {
-    bytes ticket_tx = 1;
+    bytes ticket_tx = 1;	
     repeated int32 inputs_ids = 2;
     repeated int32 output_ids = 3;
 }
 
 message SignTransactionRequest {
     string session_id = 1;
-    bytes split_tx = 2;
-    int32 req_type = 3;
+	string join_id = 2;
+    bytes split_tx = 3;
+    int32 req_type = 4;
 }
 
 message SignTransactionResponse {
@@ -43,8 +46,9 @@ message SignTransactionResponse {
 }
 message PublishResultRequest {
     string session_id = 1;
-    bytes joined_tx = 2;
-    int32 req_type = 3;
+	string join_id = 2;
+    bytes joined_tx = 3;
+    int32 req_type = 4;
 }
 
 message PublishResultResponse {

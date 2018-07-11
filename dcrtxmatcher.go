@@ -47,6 +47,8 @@ func run(ctx context.Context) error {
 	//set matcher config
 	ticketJoiner := matcher.NewTicketJoiner(mcfg)
 
+	waitingQueue := matcher.NewWaitingQueue()
+
 	intf := fmt.Sprintf(":%d", config.Port)
 
 	lis, err := net.Listen("tcp", intf)
@@ -58,10 +60,10 @@ func run(ctx context.Context) error {
 	if done(ctx) {
 		return ctx.Err()
 	}
-	go ticketJoiner.Run()
+	go ticketJoiner.Run(waitingQueue)
 
 	server := grpc.NewServer()
-	pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner))
+	pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner, waitingQueue))
 
 	if done(ctx) {
 		return ctx.Err()
@@ -80,7 +82,7 @@ func run(ctx context.Context) error {
 	if ticketJoiner != nil {
 		defer func() {
 			log.Info("Stop Ticket joiner...")
-			ticketJoiner.Stop(config.CompleteJoin)
+			//ticketJoiner.Stop(config.CompleteJoin)
 			log.Info("Ticket joiner stops")
 		}()
 	}
@@ -89,6 +91,72 @@ func run(ctx context.Context) error {
 
 	return ctx.Err()
 }
+
+//func run1(ctx context.Context) error {
+
+//	config, _, err := loadConfig(ctx)
+//	if err != nil {
+//		log.Errorf("loadConfig error %v", err)
+//		return err
+//	}
+
+//	log.Infof("MinParticipants %d", config.MinParticipants)
+
+//	mcfg := &matcher.Config{
+//		MinParticipants: config.MinParticipants,
+//		RandomIndex:     config.RandomIndex,
+//		JoinTicker:      config.JoinTicker,
+//		WaitingTimer:    config.WaitingTimer,
+//	}
+
+//	if done(ctx) {
+//		return ctx.Err()
+//	}
+//	//set matcher config
+//	ticketJoiner := matcher.NewJoinSession(mcfg)
+
+//	intf := fmt.Sprintf(":%d", config.Port)
+
+//	lis, err := net.Listen("tcp", intf)
+//	if err != nil {
+//		log.Errorf("Error listening: %v", err)
+//		return err
+//	}
+
+//	if done(ctx) {
+//		return ctx.Err()
+//	}
+//	go ticketJoiner.Run()
+
+//	server := grpc.NewServer()
+//	pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner))
+
+//	if done(ctx) {
+//		return ctx.Err()
+//	}
+//	log.Infof("Listening on %s", intf)
+//	go server.Serve(lis)
+
+//	if server != nil {
+//		defer func() {
+//			log.Info("Stop Grpc server...")
+//			server.Stop()
+//			log.Info("Grpc server stops")
+//		}()
+//	}
+
+//	if ticketJoiner != nil {
+//		defer func() {
+//			log.Info("Stop Ticket joiner...")
+//			ticketJoiner.Stop(config.CompleteJoin)
+//			log.Info("Ticket joiner stops")
+//		}()
+//	}
+
+//	<-ctx.Done()
+
+//	return ctx.Err()
+//}
 
 // done returns whether the context's Done channel was closed due to
 // cancellation or exceeded deadline.
