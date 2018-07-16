@@ -48,8 +48,6 @@ func shutdownListener() {
 	interruptChannel := make(chan os.Signal, 1)
 	signal.Notify(interruptChannel, signals...)
 
-	//log.Info("shutdownListener is listening")
-
 	// Listen for the initial shutdown signal
 	select {
 	case sig := <-interruptChannel:

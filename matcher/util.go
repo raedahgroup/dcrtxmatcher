@@ -3,6 +3,7 @@ package matcher
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"time"
 )
 
 // NewRandUint64 returns a new uint64 or an error
@@ -41,4 +42,9 @@ func MustRandInt32() int32 {
 		panic(err)
 	}
 	return r
+}
+
+func getTimeString(t time.Time) string {
+	ts := t.Format("2006-01-02 15:04:05")
+	return ts[11:]
 }

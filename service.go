@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 
-	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 
 	"github.com/decred/dcrd/wire"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
@@ -33,12 +33,13 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 
 	sessID := svc.ticketJoiner.NewSessionID()
 
-	md, ok := metadata.FromIncomingContext(ctx)
+	peer, ok := peer.FromContext(ctx)
+
 	if !ok {
-		md = metadata.New(nil)
+
 	}
 
-	log.Infof("SessionID %v - %v connected", sessID, md[":authority"])
+	log.Infof("SessionID %v - %v connected", sessID, peer.Addr.String())
 
 	done := make(chan bool)
 
@@ -160,7 +161,7 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 		tx := wire.NewMsgTx()
 		tx.BtcDecode(splitBuff, 0)
 
-		ticket, publisher, err := joinSession.SubmitSignedTransaction(matcher.SessionID(req.SessionId), tx)
+		ticket, publisher, err := joinSession.SubmitSignedTx(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
 			log.Errorf("matcher.SubmitSignedTransaction error %v ", err)
 			errn = err
@@ -204,7 +205,6 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
 	if joinSession == nil {
 		log.Debugf("joinSession is nil")
-		//return nil, errors.New("Error joinSession is nil")
 	}
 
 	go func() {

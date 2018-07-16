@@ -48,7 +48,6 @@ type (
 
 	// Session is a particular split tx being built
 	Session struct {
-		//Participants []*SessionParticipant
 		Participants map[SessionID]*SessionParticipant
 
 		MergedSplitTx *wire.MsgTx
@@ -66,10 +65,10 @@ type (
 
 	// Matcher is the main engine for matching operations
 	JoinSession struct {
-		JoinSessionID       SessionID
-		cfg                 *Config
-		waitingParticipants map[SessionID]*addParticipantReq
-		SessionData         *Session
+		JoinSessionID SessionID
+		cfg           *Config
+		//waitingParticipants map[SessionID]*addParticipantReq
+		SessionData *Session
 
 		addParticipantReq chan addParticipantReq
 		submitSplitTxReq  chan submitSplitTxReq
@@ -117,15 +116,15 @@ func (sess *Session) CheckTxSubmitted() bool {
 
 func NewJoinSession(cfg *Config) *JoinSession {
 	m := &JoinSession{
-		cfg:                 cfg,
-		waitingParticipants: make(map[SessionID]*addParticipantReq),
-		addParticipantReq:   make(chan addParticipantReq),
-		submitSplitTxReq:    make(chan submitSplitTxReq),
-		submitSignedTxReq:   make(chan submitSignedTxReq),
-		publishedTxReq:      make(chan publishedTxReq),
-		clientTimeout:       time.NewTimer(time.Second * time.Duration(cfg.JoinTicker)),
-		progress:            Waiting_Participant,
-		done:                make(chan bool, 1),
+		cfg: cfg,
+		//waitingParticipants: make(map[SessionID]*addParticipantReq),
+		addParticipantReq: make(chan addParticipantReq),
+		submitSplitTxReq:  make(chan submitSplitTxReq),
+		submitSignedTxReq: make(chan submitSignedTxReq),
+		publishedTxReq:    make(chan publishedTxReq),
+		clientTimeout:     time.NewTimer(time.Second * time.Duration(cfg.JoinTicker)),
+		progress:          Waiting_Participant,
+		done:              make(chan bool, 1),
 	}
 	//log time will start join transaction
 	timeStartJoin := time.Now().Add(time.Second * time.Duration(cfg.JoinTicker))
@@ -140,24 +139,6 @@ func (matcher *JoinSession) Run() error {
 	for {
 
 		select {
-		//		case req := <-matcher.addParticipantReq:
-		//			// validate the grpc request with current matching progress
-		//			if matcher.progress != Waiting_Participant {
-		//				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "Waiting_Participant", matcher.progress)
-		//				req.resp <- addParticipantRes{
-		//					err: ErrInvalidRequest,
-		//				}
-		//			} else {
-		//				matcher.waitingParticipants[req.sessID] = &req
-		//			}
-		//		case <-matcher.sessionTicker.C:
-		//			if matcher.progress == Waiting_Participant {
-		//				matcher.startJoinSession()
-		//			} else {
-		//				log.Infof("Wrong progress %v, can not start session", matcher.progress)
-		//			}
-		//			timeStartJoin := time.Now().Add(time.Second * time.Duration(matcher.cfg.JoinTicker))
-		//			log.Info("Will start join session at ", timeStartJoin.Format("2006-01-02 15:04:05"))
 
 		case <-matcher.clientTimeout.C:
 			//check participants who missing inputs and remove
@@ -253,60 +234,6 @@ func (matcher *JoinSession) Run() error {
 	}
 }
 
-func (matcher *JoinSession) Stop(completeJoin bool) {
-	//if enable complete join option, so server will wait until join completes
-	if completeJoin {
-		if matcher.progress != Waiting_Participant && len(matcher.SessionData.Participants) >= matcher.cfg.MinParticipants {
-
-			log.Info("Waiting for join session completes...")
-			<-matcher.done
-			log.Debug("Stop unblock, done!")
-
-		}
-	} else {
-		//matcher.progress = Completed
-	}
-}
-
-//func (matcher *JoinSession) startJoinSession() {
-//	sessSize := len(matcher.waitingParticipants)
-//	if sessSize == 0 {
-//		log.Info("None participants joins")
-//		return
-//	}
-
-//	if sessSize < matcher.cfg.MinParticipants {
-//		log.Infof("Number participants %d, will wait for minimum %d", sessSize, matcher.cfg.MinParticipants)
-//		return
-//	}
-
-//	log.Info("Start join split transaction")
-//	matcher.SessionData = &Session{
-//		Participants: make(map[SessionID]*SessionParticipant, sessSize),
-//	}
-
-//	i := 0
-//	for _, r := range matcher.waitingParticipants {
-//		sessPart := &SessionParticipant{
-//			Session: matcher.SessionData,
-//			Index:   i,
-//			ID:      r.sessID,
-//		}
-
-//		i++
-//		matcher.SessionData.Participants[r.sessID] = sessPart
-//		r.resp <- addParticipantRes{
-//			participant: sessPart,
-//		}
-//	}
-//	//update progress
-//	matcher.progress = Waiting_Raw_Tx
-//	//add timer for waiting participants send inputs
-//	matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
-
-//	matcher.waitingParticipants = make(map[SessionID]*addParticipantReq)
-//}
-
 func (matcher *JoinSession) NewSessionID() SessionID {
 	id := xid.New()
 	return SessionID(id.String())
@@ -322,6 +249,10 @@ func (matcher *JoinSession) mergeSignedInput(req *submitSignedTxReq) error {
 
 	participant.chanSubmitSignedTxRes = req.resp
 
+	//test
+	//log.Debug("sleep 10 seconds to test graceful shutdown")
+	//time.Sleep(time.Second * time.Duration(10))
+
 	//if this is first participant session then assign splittx to MergedSplitTx
 	if matcher.SessionData.SignedTx == nil {
 		matcher.SessionData.SignedTx = req.tx.Copy()
@@ -330,7 +261,6 @@ func (matcher *JoinSession) mergeSignedInput(req *submitSignedTxReq) error {
 
 	for _, i := range participant.InputIndes {
 		if participant.SignedTx.TxIn[i] == nil {
-
 			return errors.New(msg)
 		}
 		matcher.SessionData.SignedTx.TxIn[i] = participant.SignedTx.TxIn[i]
@@ -397,17 +327,10 @@ func (matcher *JoinSession) publishTxResult(req *publishedTxReq) error {
 			}
 		}
 		if matcher.SessionData.PublishedTx != nil {
-			log.Info("Sent joined transaction to all participants for purchasing tickets")
+			log.Infof("Sent joined transaction to %v participants for purchasing tickets", len(matcher.SessionData.Participants))
 		}
 
 		matcher.joinTicker.RemoveSession(matcher.JoinSessionID)
-
-		log.Info("Number join sessions in progress", len(matcher.joinTicker.joinSessions))
-		//update progress to waiting participant for next session
-		//matcher.progress = Completed
-
-		//mark join session is done
-		//matcher.done <- true
 
 	}
 
@@ -596,7 +519,7 @@ func (matcher *JoinSession) SubmitSplitTx(sessionID SessionID, splitTx *wire.Msg
 
 // SubmitSignedTransaction get signed inputs from parti and
 // merge to one transaction
-func (matcher *JoinSession) SubmitSignedTransaction(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, bool, error) {
+func (matcher *JoinSession) SubmitSignedTx(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, bool, error) {
 
 	req := submitSignedTxReq{
 		sessionID: sessionID,

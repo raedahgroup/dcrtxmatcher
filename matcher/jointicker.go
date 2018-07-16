@@ -13,6 +13,7 @@ type (
 		joinTicker   *time.Ticker
 		joinSessions map[SessionID]*JoinSession
 		cfg          *Config
+		done         chan bool
 	}
 
 	WaitingQueue struct {
@@ -32,12 +33,13 @@ func NewWaitingQueue() *WaitingQueue {
 func NewTicketJoiner(config *Config) *JoinTicker {
 	//log time will start join transaction
 	timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
-	log.Info("Will start join session at ", timeStartJoin.Format("2006-01-02 15:04:05"))
+	log.Info("Will start join session at", getTimeString(timeStartJoin))
 
 	return &JoinTicker{
 		joinTicker:   time.NewTicker(time.Second * time.Duration(config.JoinTicker)),
 		joinSessions: make(map[SessionID]*JoinSession),
 		cfg:          config,
+		done:         make(chan bool, 1),
 	}
 }
 
@@ -69,6 +71,11 @@ func (joinTicker *JoinTicker) RemoveSession(joinId SessionID) {
 	defer joinTicker.Unlock()
 	delete(joinTicker.joinSessions, joinId)
 	log.Debugf("Removed joinId %v after completed", joinId)
+	log.Info("Number join sessions in progress", len(joinTicker.joinSessions))
+
+	if len(joinTicker.joinSessions) == 0 {
+		joinTicker.done <- true
+	}
 }
 
 func (waitingQueue *WaitingQueue) RemoveWaitingID(sessionID SessionID) error {
@@ -99,13 +106,13 @@ func (joinTicker *JoinTicker) Run(waitingQueue *WaitingQueue) {
 			sessSize := len(waitingQueue.waitingPars)
 			if sessSize == 0 {
 				log.Info("Zero participants connected")
-				log.Info("Will start next join session at", timeStartJoin.Format("2006-01-02 15:04:05"))
+				log.Info("Will start next join session at", getTimeString(timeStartJoin))
 				continue
 			}
 
 			if sessSize < joinTicker.cfg.MinParticipants {
 				log.Infof("Number participants %d, will wait for minimum %d", sessSize, joinTicker.cfg.MinParticipants)
-				log.Info("Will start next join session at", timeStartJoin.Format("2006-01-02 15:04:05"))
+				log.Info("Will start next join session at", getTimeString(timeStartJoin))
 				continue
 			}
 
@@ -149,6 +156,16 @@ func (joinTicker *JoinTicker) Run(waitingQueue *WaitingQueue) {
 			log.Infof("JoinSessionId %v", joinSessionID)
 
 			go joinSession.Run()
+		}
+	}
+}
+
+func (joinTicker *JoinTicker) Stop(completeJoin bool) {
+	//if enable complete join option, so server will wait until join completes
+	if completeJoin {
+		if len(joinTicker.joinSessions) != 0 {
+			log.Info("Waiting for join session completes...")
+			<-joinTicker.done
 		}
 	}
 }
