@@ -1,4 +1,4 @@
-package matcher
+package util
 
 import (
 	"crypto/rand"
@@ -44,7 +44,7 @@ func MustRandInt32() int32 {
 	return r
 }
 
-func getTimeString(t time.Time) string {
+func GetTimeString(t time.Time) string {
 	ts := t.Format("2006-01-02 15:04:05")
 	return ts[11:]
 }

@@ -19,13 +19,10 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/decred/dcrd/dcrutil"
 	"github.com/raedahgroup/dcrtxmatcher/util"
-	//"github.com/decred/dcrwallet/netparams"
 
 	"github.com/decred/dcrwallet/version"
-	//"github.com/decred/dcrwallet/wallet"
-	//"github.com/decred/dcrwallet/wallet/txrules"
+
 	flags "github.com/jessevdk/go-flags"
-	//"github.com/decred/dcrwallet/dcrtxclient"
 )
 
 const (
@@ -39,6 +36,7 @@ const (
 	defaultJoinTicker      = 120
 	defaultWaitingTimer    = 30
 	defaultCompleteJoin    = true
+	defaultBlindServer     = true
 )
 
 var (
@@ -60,6 +58,7 @@ type config struct {
 	JoinTicker      int                  `short:"j" long:"jointicker" description:"time in seconds server will perform joining"`
 	WaitingTimer    int                  `short:"t" long:"timer" description:"timeout in seconds for waiting submit data from client"`
 	CompleteJoin    bool                 `long:"completejoin" description:"option to decide complete join ticket is in progress or not"`
+	BlindServer     bool                 `long:"blindserver" description:"option to use dicemix or simple coinjoin method"`
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -214,6 +213,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		JoinTicker:      defaultJoinTicker,
 		WaitingTimer:    defaultWaitingTimer,
 		CompleteJoin:    defaultCompleteJoin,
+		BlindServer:     defaultBlindServer,
 	}
 
 	// Pre-parse the command line options to see if an alternative config

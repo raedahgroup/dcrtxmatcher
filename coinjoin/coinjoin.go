@@ -1,0 +1,257 @@
+package coinjoin
+
+import (
+	"crypto/rand"
+
+	"math/big"
+	"sync"
+	"time"
+
+	"github.com/golang/protobuf/proto"
+	"github.com/gorilla/websocket"
+	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
+	"github.com/raedahgroup/dcrtxmatcher/util"
+)
+
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 1024 * 1024
+)
+
+type (
+	PeerInfo struct {
+		Id          uint64
+		SessionId   uint64
+		Conn        *websocket.Conn
+		JoinSession *JoinSession
+		JoinQueue   *JoinQueue
+		PK          []byte
+		IPAddr      string
+		cmd         int
+		writeChan   chan []byte
+	}
+
+	JoinQueue struct {
+		sync.Mutex
+		WaitingPeers map[uint64]*PeerInfo
+		NewPeerChan  chan *PeerInfo
+	}
+
+	DiceMix struct {
+		sessionTicker *time.Ticker
+		Sessions      map[uint64]*JoinSession
+		config        *Config
+	}
+
+	// Config stores the parameters for the matcher engine
+	Config struct {
+		MinParticipants int
+		RandomIndex     bool
+		JoinTicker      int
+		WaitingTimer    int
+	}
+)
+
+func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
+
+	for {
+
+		select {
+
+		case peer := <-joinQueue.NewPeerChan:
+			joinQueue.AddNewPeer(peer)
+
+		case <-diceMix.sessionTicker.C:
+			//start join session
+			timeStartJoin := time.Now().Add(time.Second * time.Duration(diceMix.config.JoinTicker))
+			queueSize := len(joinQueue.WaitingPeers)
+			if queueSize == 0 {
+				log.Info("Zero participant connected")
+				log.Info("Will start next join session at", util.GetTimeString(timeStartJoin))
+				continue
+			}
+
+			if queueSize < diceMix.config.MinParticipants {
+				log.Infof("Number participants %d, will wait for minimum %d", queueSize, diceMix.config.MinParticipants)
+				log.Info("Will start next join session at", util.GetTimeString(timeStartJoin))
+				continue
+			}
+
+			joinQueue.Lock()
+			sessionId := GenId()
+			joinSession := NewJoinSession(sessionId)
+			log.Infof("Start coin join transaction - sessionId %v", sessionId)
+
+			for id, peer := range joinQueue.WaitingPeers {
+				peer.SessionId = sessionId
+				joinSession.Peers[id] = peer
+				peer.JoinQueue = nil
+				peer.JoinSession = joinSession
+
+				coinJoinRes := &pb.CoinJoinRes{
+					PeerId:    peer.Id,
+					SessionId: peer.SessionId,
+					//PeerIds:
+				}
+
+				data, err := proto.Marshal(coinJoinRes)
+				if err != nil {
+					log.Errorf("proto.Marshal coinJoinRes error: %v", err)
+					break
+				}
+
+				message := NewMessage(S_JOIN_RESPONSE, data)
+
+				peer.writeChan <- message.ToBytes()
+			}
+
+			//init new queue
+			joinQueue.WaitingPeers = make(map[uint64]*PeerInfo)
+			joinQueue.Unlock()
+
+			//start join session
+			joinSession.DiceMix = diceMix
+			go joinSession.run()
+
+		}
+	}
+}
+
+func NewJoinQueue() *JoinQueue {
+	return &JoinQueue{
+		WaitingPeers: make(map[uint64]*PeerInfo),
+		NewPeerChan:  make(chan *PeerInfo),
+	}
+}
+
+func NewDiceMix(config *Config) *DiceMix {
+
+	//log time will start join transaction
+	timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
+	log.Info("Will start join session at", util.GetTimeString(timeStartJoin))
+
+	return &DiceMix{
+		config:        config,
+		Sessions:      make(map[uint64]*JoinSession),
+		sessionTicker: time.NewTicker(time.Second * time.Duration(config.JoinTicker)),
+	}
+}
+
+func (joinQueue *JoinQueue) AddNewPeer(peer *PeerInfo) {
+
+	joinQueue.Lock()
+	defer joinQueue.Unlock()
+
+	log.Infof("New peer connected %v - %v", peer.Id, peer.IPAddr)
+
+	joinQueue.WaitingPeers[peer.Id] = peer
+	peer.JoinQueue = joinQueue
+
+	log.Infof("Size of waiting peers %v", len(joinQueue.WaitingPeers))
+
+	go peer.ReadMessages()
+	go peer.WriteMessages()
+}
+
+func (joinQueue *JoinQueue) RemovePeer(peer *PeerInfo) {
+	if joinQueue == nil {
+		return
+	}
+
+	joinQueue.Lock()
+	defer joinQueue.Unlock()
+	log.Infof("Remove peer %v - %v from join queue", peer.Id, peer.IPAddr)
+	delete(joinQueue.WaitingPeers, peer.Id)
+}
+
+func NewPeer(wsconn *websocket.Conn) *PeerInfo {
+	return &PeerInfo{
+		Id:        GenId(),
+		Conn:      wsconn,
+		writeChan: make(chan []byte),
+	}
+}
+
+func (peer *PeerInfo) WriteMessages() {
+	for {
+		select {
+		case msg := <-peer.writeChan:
+			err := peer.Conn.WriteMessage(websocket.BinaryMessage, msg)
+			if err != nil {
+				log.Errorf("Write messsage to socket error: %v", err)
+				if peer.JoinSession != nil {
+					//remove from joinsesion
+					delete(peer.JoinSession.Peers, peer.Id)
+					log.Infof("Peer %v disconnected", peer.Id)
+				} else {
+					peer.JoinQueue.RemovePeer(peer)
+					log.Infof("Peer %v disconnected", peer.Id)
+				}
+				break
+			}
+		}
+	}
+}
+
+func (peer *PeerInfo) ReadMessages() {
+
+	defer peer.Conn.Close()
+	for {
+
+		cmd, data, err := peer.Conn.ReadMessage()
+		if err != nil {
+			log.Errorf("Read messsage from socket error: %v", err)
+			if peer.JoinSession != nil {
+				//remove from joinsesion
+				delete(peer.JoinSession.Peers, peer.Id)
+				log.Infof("Peer %v disconnected", peer.Id)
+			} else {
+				peer.JoinQueue.RemovePeer(peer)
+				log.Infof("Peer %v disconnected", peer.Id)
+			}
+			break
+		}
+		if cmd == 1 || peer.JoinSession == nil {
+			log.Debug("continue with cmd == 1 and peer.JoinSession is nil")
+			continue
+		}
+
+		message, err := ParseMessage(data)
+		if err != nil {
+			log.Errorf("ParseMessage error: %v", err)
+			break
+		}
+
+		switch message.MsgType {
+		case C_KEY_EXCHANGE:
+			log.Debug("C_KEY_EXCHANGE")
+			keyex := &pb.KeyExchangeReq{}
+			err := proto.Unmarshal(message.Data, keyex)
+			if err != nil {
+				log.Errorf("Parsproto.Unmarshal error: %v", err)
+				break
+			}
+
+			log.Infof("key ex: %v", keyex)
+
+			peer.JoinSession.keyExchangeChan <- *keyex
+		case C_EXP_DC_VECTOR:
+		case C_SIMPLE_DC_VECTOR:
+		case C_TX_SIGNATURE:
+		}
+
+	}
+}
+
+func GenId() uint64 {
+	id, err := rand.Int(rand.Reader, big.NewInt(1548008755920))
+
+	if err != nil {
+		log.Criticalf("can not gen id %v", err)
+		panic(err)
+	}
+
+	return id.Uint64()
+}

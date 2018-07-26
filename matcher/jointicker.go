@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raedahgroup/dcrtxmatcher/util"
 	"github.com/rs/xid"
 )
 
@@ -33,7 +34,7 @@ func NewWaitingQueue() *WaitingQueue {
 func NewTicketJoiner(config *Config) *JoinTicker {
 	//log time will start join transaction
 	timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
-	log.Info("Will start join session at", getTimeString(timeStartJoin))
+	log.Info("Will start join session at", util.GetTimeString(timeStartJoin))
 
 	return &JoinTicker{
 		joinTicker:   time.NewTicker(time.Second * time.Duration(config.JoinTicker)),
@@ -106,13 +107,13 @@ func (joinTicker *JoinTicker) Run(waitingQueue *WaitingQueue) {
 			sessSize := len(waitingQueue.waitingPars)
 			if sessSize == 0 {
 				log.Info("Zero participants connected")
-				log.Info("Will start next join session at", getTimeString(timeStartJoin))
+				log.Info("Will start next join session at", util.GetTimeString(timeStartJoin))
 				continue
 			}
 
 			if sessSize < joinTicker.cfg.MinParticipants {
 				log.Infof("Number participants %d, will wait for minimum %d", sessSize, joinTicker.cfg.MinParticipants)
-				log.Info("Will start next join session at", getTimeString(timeStartJoin))
+				log.Info("Will start next join session at", util.GetTimeString(timeStartJoin))
 				continue
 			}
 

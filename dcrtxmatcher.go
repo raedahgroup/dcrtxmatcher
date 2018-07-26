@@ -1,14 +1,16 @@
 package main
 
 import (
-	//"context"
-	"os"
-
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"os"
+
+	"github.com/gorilla/websocket"
 
 	pb "github.com/raedahgroup/dcrtxmatcher/api/matcherrpc"
+	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 	"google.golang.org/grpc"
 )
@@ -32,59 +34,98 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	log.Infof("MinParticipants %d", config.MinParticipants)
-
-	mcfg := &matcher.Config{
-		MinParticipants: config.MinParticipants,
-		RandomIndex:     config.RandomIndex,
-		JoinTicker:      config.JoinTicker,
-		WaitingTimer:    config.WaitingTimer,
-	}
-
 	if done(ctx) {
 		return ctx.Err()
 	}
-	//set matcher config
-	ticketJoiner := matcher.NewTicketJoiner(mcfg)
 
-	waitingQueue := matcher.NewWaitingQueue()
+	if config.BlindServer {
+		dcmixlog.Infof("MinParticipants %d", config.MinParticipants)
+		dicemixCfg := &coinjoin.Config{
+			MinParticipants: config.MinParticipants,
+			RandomIndex:     config.RandomIndex,
+			JoinTicker:      config.JoinTicker,
+			WaitingTimer:    config.WaitingTimer,
+		}
+		//websocket
+		joinQueue := coinjoin.NewJoinQueue()
 
-	intf := fmt.Sprintf(":%d", config.Port)
+		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 
-	lis, err := net.Listen("tcp", intf)
-	if err != nil {
-		log.Errorf("Error listening: %v", err)
-		return err
-	}
+			upgrader := websocket.Upgrader{
+				ReadBufferSize:  1024 * 1024,
+				WriteBufferSize: 1024 * 1024,
+			}
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				log.Infof("Can not upgrade from remote address %v", r.RemoteAddr)
+				return
+			}
 
-	if done(ctx) {
-		return ctx.Err()
-	}
-	go ticketJoiner.Run(waitingQueue)
+			//add ws connection to dicemix for management
+			peer := coinjoin.NewPeer(conn)
+			peer.IPAddr = r.RemoteAddr
 
-	server := grpc.NewServer()
-	pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner, waitingQueue))
+			joinQueue.NewPeerChan <- peer
 
-	if done(ctx) {
-		return ctx.Err()
-	}
-	log.Infof("Listening on %s", intf)
-	go server.Serve(lis)
+		})
 
-	if server != nil {
-		defer func() {
-			log.Info("Stop Grpc server...")
-			server.Stop()
-			log.Info("Grpc server stops")
-		}()
-	}
+		diceMix := coinjoin.NewDiceMix(dicemixCfg)
+		go diceMix.Run(joinQueue)
 
-	if ticketJoiner != nil {
-		defer func() {
-			log.Info("Stop Ticket joiner...")
-			ticketJoiner.Stop(config.CompleteJoin)
-			log.Info("Ticket joiner stops")
-		}()
+		intf := fmt.Sprintf(":%d", config.Port)
+		dcmixlog.Infof("Listening on %s", intf)
+
+		http.ListenAndServe(intf, nil)
+
+	} else {
+		mcfg := &matcher.Config{
+			MinParticipants: config.MinParticipants,
+			RandomIndex:     config.RandomIndex,
+			JoinTicker:      config.JoinTicker,
+			WaitingTimer:    config.WaitingTimer,
+		}
+		//set matcher config
+		ticketJoiner := matcher.NewTicketJoiner(mcfg)
+
+		waitingQueue := matcher.NewWaitingQueue()
+
+		intf := fmt.Sprintf(":%d", config.Port)
+
+		lis, err := net.Listen("tcp", intf)
+		if err != nil {
+			log.Errorf("Error listening: %v", err)
+			return err
+		}
+
+		if done(ctx) {
+			return ctx.Err()
+		}
+		go ticketJoiner.Run(waitingQueue)
+
+		server := grpc.NewServer()
+		pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner, waitingQueue))
+
+		if done(ctx) {
+			return ctx.Err()
+		}
+		log.Infof("Listening on %s", intf)
+		go server.Serve(lis)
+
+		if server != nil {
+			defer func() {
+				log.Info("Stop Grpc server...")
+				server.Stop()
+				log.Info("Grpc server stops")
+			}()
+		}
+
+		if ticketJoiner != nil {
+			defer func() {
+				log.Info("Stop Ticket joiner...")
+				ticketJoiner.Stop(config.CompleteJoin)
+				log.Info("Ticket joiner stops")
+			}()
+		}
 	}
 
 	<-ctx.Done()

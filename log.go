@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
+	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 )
 
@@ -42,19 +43,20 @@ var (
 	// logRotator is one of the logging outputs.  It should be closed on
 	// application shutdown.
 	logRotator *rotator.Rotator
-
-	log = backendLog.Logger("MATTX")
+	dcmixlog   = backendLog.Logger("DCMIX")
+	log        = backendLog.Logger("MATTX")
 )
 
 // Initialize package-global logger variables.
 func init() {
+	coinjoin.UseLogger(dcmixlog)
 	matcher.UseLogger(log)
-	//daemon.UseLogger(log)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
 var subsystemLoggers = map[string]btclog.Logger{
-	"MATCH": log,
+	"DCMIX": dcmixlog,
+	"MATTX": log,
 }
 
 // initLogRotator initializes the logging rotater to write logs to logFile and

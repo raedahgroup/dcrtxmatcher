@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/decred/dcrd/wire"
+
 	"github.com/rs/xid"
 )
 
