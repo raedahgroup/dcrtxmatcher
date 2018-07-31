@@ -10,9 +10,9 @@ import (
 
 type (
 	JoinSession struct {
-		Id uint64
+		Id uint32
 		sync.Mutex
-		Peers   map[uint64]*PeerInfo
+		Peers   map[uint32]*PeerInfo
 		DiceMix *DiceMix
 		State   int
 
@@ -24,10 +24,10 @@ type (
 	}
 )
 
-func NewJoinSession(sessionId uint64) *JoinSession {
+func NewJoinSession(sessionId uint32) *JoinSession {
 	return &JoinSession{
 		Id:              sessionId,
-		Peers:           make(map[uint64]*PeerInfo),
+		Peers:           make(map[uint32]*PeerInfo),
 		keyExchangeChan: make(chan pb.KeyExchangeReq),
 		PKs:             make([]*pb.PeerInfo, 0),
 	}

@@ -1,5 +1,8 @@
 package coinjoin
 
+//Message parser for marchal and unmarshal from/to protobuf message
+//MessageType is id of message client/server send in each round
+//Data is data of the round that is protobuf messsage
 import (
 	"bytes"
 	"encoding/binary"
@@ -43,6 +46,7 @@ func BytesToUint(data []byte) (ret uint32) {
 	return
 }
 
+//Parse data received (from client or server) to Message
 func ParseMessage(msgData []byte) (*Message, error) {
 	if len(msgData) < 4 {
 		return nil, errors.New("message data is less than 4 bytes")

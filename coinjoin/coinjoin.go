@@ -22,8 +22,8 @@ const (
 
 type (
 	PeerInfo struct {
-		Id          uint64
-		SessionId   uint64
+		Id          uint32
+		SessionId   uint32
 		Conn        *websocket.Conn
 		JoinSession *JoinSession
 		JoinQueue   *JoinQueue
@@ -35,13 +35,13 @@ type (
 
 	JoinQueue struct {
 		sync.Mutex
-		WaitingPeers map[uint64]*PeerInfo
+		WaitingPeers map[uint32]*PeerInfo
 		NewPeerChan  chan *PeerInfo
 	}
 
 	DiceMix struct {
 		sessionTicker *time.Ticker
-		Sessions      map[uint64]*JoinSession
+		Sessions      map[uint32]*JoinSession
 		config        *Config
 	}
 
@@ -108,7 +108,7 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 			}
 
 			//init new queue
-			joinQueue.WaitingPeers = make(map[uint64]*PeerInfo)
+			joinQueue.WaitingPeers = make(map[uint32]*PeerInfo)
 			joinQueue.Unlock()
 
 			//start join session
@@ -121,7 +121,7 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 
 func NewJoinQueue() *JoinQueue {
 	return &JoinQueue{
-		WaitingPeers: make(map[uint64]*PeerInfo),
+		WaitingPeers: make(map[uint32]*PeerInfo),
 		NewPeerChan:  make(chan *PeerInfo),
 	}
 }
@@ -134,7 +134,7 @@ func NewDiceMix(config *Config) *DiceMix {
 
 	return &DiceMix{
 		config:        config,
-		Sessions:      make(map[uint64]*JoinSession),
+		Sessions:      make(map[uint32]*JoinSession),
 		sessionTicker: time.NewTicker(time.Second * time.Duration(config.JoinTicker)),
 	}
 }
@@ -245,13 +245,13 @@ func (peer *PeerInfo) ReadMessages() {
 	}
 }
 
-func GenId() uint64 {
-	id, err := rand.Int(rand.Reader, big.NewInt(1548008755920))
+func GenId() uint32 {
+	id, err := rand.Int(rand.Reader, big.NewInt(4294967295))
 
 	if err != nil {
 		log.Criticalf("can not gen id %v", err)
 		panic(err)
 	}
 
-	return id.Uint64()
+	return uint32(id.Uint64())
 }

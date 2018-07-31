@@ -36,6 +36,7 @@ func main() {
 
 		if err != nil {
 			fmt.Printf("error ParseMessage: %v", err)
+			break
 		}
 
 		switch message.MsgType {
