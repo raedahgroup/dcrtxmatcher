@@ -3,8 +3,17 @@ package util
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"log"
 	"time"
 )
+
+func Uint64() (v uint64) {
+	err := binary.Read(rand.Reader, binary.BigEndian, &v)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return v
+}
 
 // NewRandUint64 returns a new uint64 or an error
 func NewRandUint64() (uint64, error) {
