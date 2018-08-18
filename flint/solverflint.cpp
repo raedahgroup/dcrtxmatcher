@@ -22,7 +22,7 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
 #ifdef DEBUG
         cout << "Input vector too short." << endl;
 #endif
-        return 2;
+        return RET_INPUT_ERROR;
     }
 
     // Basic sanity check to avoid weird inputs
@@ -30,21 +30,21 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
 #ifdef DEBUG
         cout << "You probably do not want an input vector of more than 1000 elements. " << endl;
 #endif
-        return 3;
+        return RET_INPUT_ERROR;
     }
 
     if (messages.size() != sums.size()) {
 #ifdef DEBUG
         cout << "Output vector has wrong size." << endl;
 #endif
-        return 4;
+        return RET_INPUT_ERROR;
     }
 
     if (p <= n) {
 #ifdef DEBUG
         cout << "Prime must be (way) larger than the size of the input vector." << endl;
 #endif
-        return 5;
+        return RET_INPUT_ERROR;
     }
 
     fmpz_mod_polyxx poly(p);
@@ -106,17 +106,15 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
     for (int i = 0; i < factors.size(); i++) {
         for (int j = 0; j < factors.exp(i); j++) {
             messages[k] = factors.p(i).get_coeff(0).negmod(p);
-            k++;
-			cout << "messages[k]: " << factors.p(i).get_coeff(0).negmod(p) << endl;
+            k++;			
         }
     }
 
     return 0;
 }
 
-
-extern "C" int solve(char** const out_messages, const char* prime, const char** const sums, size_t n) {
-    // Exceptions should never propagate to C (undefined behavior).
+//solve with sums and output message are base 16 
+extern "C" int solve(char** out_messages, const char* prime, const char** const sums, size_t n) {   
     try {
         fmpzxx p;
         fmpzxx m;
@@ -135,11 +133,11 @@ extern "C" int solve(char** const out_messages, const char* prime, const char** 
             }
         }
 
-//        for (size_t i = 0; i < n; i++) {
-//            if (out_messages[i] == NULL) {
-//                return 52;
-//            }
-//        }
+        for (size_t i = 0; i < n; i++) {			
+            if (out_messages[i] == NULL) {
+				out_messages[i] = (char*)malloc(64 * sizeof(char));                
+            }
+        }
 
         int ret = solve_poly(messages, p, s);
 
@@ -151,6 +149,60 @@ extern "C" int solve(char** const out_messages, const char* prime, const char** 
                 }
                 fmpz_get_str(out_messages[i], 16, messages[i]._fmpz());
             }
+        }
+		
+		for (size_t i = 0; i < n; i++) {
+            // Impossible
+           cout << "out message: " << out_messages[i] << endl;
+        }
+
+        return ret;
+    } catch (...) {
+        return RET_INTERNAL_ERROR;
+    }
+}
+
+//solve with sums and output message are base 10 
+extern "C" int solves(char** out_messages, const char* prime, const char** const sums, size_t n) {   
+    try {
+        fmpzxx p;
+        fmpzxx m;
+
+        vector<fmpzxx> s(n);
+        vector<fmpzxx> messages(n);
+
+        // operator= is hard-coded to base 10 and does not check for errors
+        if (fmpz_set_str(p._fmpz(), prime, 10)) {
+            return RET_INPUT_ERROR;
+        }
+
+        for (size_t i = 0; i < n; i++) {
+            if (fmpz_set_str(s[i]._fmpz(), sums[i], 10)) {
+                return RET_INPUT_ERROR;
+            }
+        }
+
+        for (size_t i = 0; i < n; i++) {			
+            if (out_messages[i] == NULL) {
+				out_messages[i] = (char*)malloc(64 * sizeof(char));                
+            }
+        }
+
+        int ret = solve_poly(messages, p, s);
+
+        if (ret == 0) {
+            for (size_t i = 0; i < n; i++) {
+                // Impossible
+                if (messages[i].sizeinbase(10) > strlen(prime)) {
+                    return RET_INTERNAL_ERROR;
+                }
+                fmpz_get_str(out_messages[i], 10, messages[i]._fmpz());
+            }
+        }
+		
+		for (size_t i = 0; i < n; i++) {
+            // Impossible
+           cout << "out message: " << out_messages[i] << endl;
         }
 
         return ret;
