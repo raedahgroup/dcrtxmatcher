@@ -50,11 +50,11 @@ func main() {
 //solve polynomial with ps is prime number
 //sums is slice of finite field with length in size
 //return the roots in slice of string
-func GetRoots(ps string, powersums []field.Ff, size int) []string {
+func GetRoots(ps string, powersums []field.Field, size int) []string {
 
 	sumb := [][]byte{}
 	for i := 0; i < size; i++ {
-		sumb = append(sumb, []byte(powersums[i].Str(16)))
+		sumb = append(sumb, []byte(powersums[i].HexStr()))
 	}
 
 	outer := make([]*C.char, size)

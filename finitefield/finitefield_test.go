@@ -1,95 +1,79 @@
 package field
 
-//"testing"
+import (
+	"fmt"
+	"testing"
+)
 
 type testdata struct {
-	data []UInt64
-	res  UInt64
+	data []Uint128
+	res  Uint128
 }
 
-//p61
-//2305843009213693951
-//p263
-//9223372036854775807
+var testMulFFData = []testdata{
+	{[]Uint128{Prime, Uint128{0x7390f9549e79d27c, 0x208c117eedfc75ea}},
+		Uint128{0x0, 0x0}},
+	{[]Uint128{Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
+		Uint128{0x0, 0xFFFFFFFFFFFFFFF0}},
+		Uint128{0x7fffffffffffffff, 0xf}},
 
-//var additionTests = []testdata{
-//	{[]UInt64{7, 5}, 12},
-//	{[]UInt64{P - 2, 5}, 3},
-//	{[]UInt64{2193980333835211996, 621408416523297271}, 2815388750358509267},
-//	{[]UInt64{18446744073709551615, 18446744073709551615}, 14},
-//	{[]UInt64{9223372036854775806, 3}, 2},
-//	{[]UInt64{9223372036854775806, 1}, 0},
-//}
+	{[]Uint128{Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
+		Uint128{0x0, 0x2}},
+		Uint128{0x7fffffffffffffff, 0xFFFFFFFFFFFFFFFD}},
 
-//var subtractionTests = []testdata{
-//	{[]UInt64{7, 5}, 2},
-//	{[]UInt64{4, 8}, P - 4},
-//	{[]UInt64{18446744073709551615, 18446744073709551615}, 0},
-//	{[]UInt64{P, 5}, P - 5},
-//}
+	{[]Uint128{Uint128{0xb1bef14409e0540, 0x80db735e727f4d1d}, Uint128{0x7390f9549e79d27c, 0x208c117eedfc75ea}},
+		Uint128{0x556cb10223e60657, 0xf5363a806ba8d108}},
+	{[]Uint128{Uint128{0x38ebdafa6f7d8cda, 0x722794440159d78a}, Uint128{0x74301e24ac4cdd17, 0xcb4bf7e0fe6971b5}},
+		Uint128{0x521cec713dd29186, 0xd1bc418f2fb8230b}},
+}
 
-//var negationTests = []testdata{
-//	{[]UInt64{4}, P - 4},
-//	{[]UInt64{P}, 0},
-//	{[]UInt64{P - 1}, 1},
-//	{[]UInt64{P + 5}, P - 5},
-//}
+var testAddFFData = []testdata{
+	{[]Uint128{Prime, Uint128{0x0, 0x1}},
+		Uint128{0x0, 0x1}},
+	{[]Uint128{Prime,
+		Uint128{0x0, 0x5}},
+		Uint128{0x0, 0x5}},
 
-//var multiplicationTests = []testdata{
-//	{[]UInt64{4, 3}, 12},
-//	{[]UInt64{4223372036854775807, 2}, 8446744073709551614},
-//	{[]UInt64{2239513929391938494, 1021644029483981869}, 619009326837417152},
-//	{[]UInt64{2305843009213693950, 5}, 2305843009213693946},
-//}
+	{[]Uint128{Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
+		Uint128{0x0, 0x5}},
+		Uint128{0x0, 0x4}},
 
-//func TestAddition(t *testing.T) {
-//	for _, pair := range additionTests {
-//		v := NewField(pair.data[0]).Add(NewField(pair.data[1]))
-//		if v != NewField(pair.res) {
-//			t.Error(
-//				"For", pair.data,
-//				"expected", pair.res,
-//				"got", v,
-//			)
-//		}
-//	}
-//}
+	{[]Uint128{Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
+		Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE}},
+		Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFD}},
+}
 
-//func TestSubtraction(t *testing.T) {
-//	for _, pair := range subtractionTests {
-//		v := NewField(pair.data[0]).Sub(NewField(pair.data[1]))
-//		if v != NewField(pair.res) {
-//			t.Error(
-//				"For", pair.data,
-//				"expected", pair.res,
-//				"got", v,
-//			)
-//		}
-//	}
-//}
+func TestMulFF(t *testing.T) {
 
-//func TestMultiplication(t *testing.T) {
-//	for _, pair := range multiplicationTests {
-//		v := NewField(pair.data[0]).Mul(NewField(pair.data[1]))
-//		if v != NewField(pair.res) {
-//			t.Error(
-//				"For", pair.data,
-//				"expected", pair.res,
-//				"got", v,
-//			)
-//		}
-//	}
-//}
+	for i, _ := range testMulFFData {
+		f1 := NewFF(testMulFFData[i].data[0])
+		f2 := NewFF(testMulFFData[i].data[1])
 
-//func TestNegation(t *testing.T) {
-//	for _, pair := range negationTests {
-//		v := NewField(pair.data[0]).Neg()
-//		if v != NewField(pair.res) {
-//			t.Error(
-//				"For", pair.data,
-//				"expected", pair.res,
-//				"got", v,
-//			)
-//		}
-//	}
-//}
+		f3 := f1.Mul(f2)
+
+		fmt.Println("f2.hexstr", f3.HexStr())
+		fmt.Println("f2.string", f3.String())
+
+		if f3.N.Compare(testMulFFData[i].res) != 0 {
+			t.Errorf("error.\n inputs %v.\n expected: %v.\n res: %v",
+				testMulFFData[i].data, testMulFFData[i].res, f3.N)
+		}
+	}
+
+}
+
+func TestAddFF(t *testing.T) {
+
+	for i, _ := range testAddFFData {
+		f1 := NewFF(testAddFFData[i].data[0])
+		f2 := NewFF(testAddFFData[i].data[1])
+
+		f3 := f1.Add(f2)
+
+		if f3.N.Compare(testAddFFData[i].res) != 0 {
+			t.Errorf("error.\n inputs %v.\n expected: %v.\n res: %v",
+				testAddFFData[i].data, testAddFFData[i].res, f3.N)
+		}
+	}
+
+}

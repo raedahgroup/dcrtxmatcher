@@ -5,20 +5,156 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"log"
 
 	"github.com/pkg/errors"
 )
 
-// Big endian uint128
-type Uint128 struct {
-	H, L uint64
+type (
+	Uint128 struct {
+		H, L uint64
+	}
+)
+
+//Function for uint128
+func (op Uint128) Compare(op2 Uint128) int {
+	if op.H > op.H {
+		return 1
+	} else if op.H < op2.H {
+		return -1
+	}
+
+	if op.L > op2.L {
+		return 1
+	} else if op.L < op2.L {
+		return -1
+	}
+
+	return 0
 }
 
-func (N Uint128) ShiftLL(S Uint128) Uint128 {
+func (u Uint128) Reduce() Uint128 {
+	return And128(u, Prime).Add(u.ShiftR(127))
+}
 
-	var shift uint64 = S.L
+func Reduce2(h, l Uint128) Uint128 {
+	shift := Or128(h.ShiftL(1), l.ShiftR(127))
+	return And128(l, Prime).Add(shift)
+}
 
-	if S.H > 0 || (shift >= 128) {
+func Mul(n, m Uint128) Uint128 {
+	// Split values into four 32-bit parts
+	top := []uint64{n.H >> 32, n.H & 0xFFFFFFFF, n.L >> 32, n.L & 0xFFFFFFFF}
+	bottom := []uint64{m.H >> 32, m.H & 0xFFFFFFFF, m.L >> 32, m.L & 0xFFFFFFFF}
+	products := make([][]uint64, 4)
+	for i := range products {
+		products[i] = make([]uint64, 4)
+	}
+
+	// Multiply each component of the values
+	for y := 3; y > -1; y-- {
+		for x := 3; x > -1; x-- {
+			products[3-x][y] = top[x] * bottom[y]
+		}
+	}
+
+	// First row
+	fourth32 := (products[0][3] & 0xFFFFFFFF)
+	third32 := (products[0][2] & 0xFFFFFFFF) + (products[0][3] >> 32)
+	second32 := (products[0][1] & 0xFFFFFFFF) + (products[0][2] >> 32)
+	first32 := (products[0][0] & 0xFFFFFFFF) + (products[0][1] >> 32)
+
+	// Second row
+	third32 += (products[1][3] & 0xFFFFFFFF)
+	second32 += (products[1][2] & 0xFFFFFFFF) + (products[1][3] >> 32)
+	first32 += (products[1][1] & 0xFFFFFFFF) + (products[1][2] >> 32)
+
+	// Third row
+	second32 += (products[2][3] & 0xFFFFFFFF)
+	first32 += (products[2][2] & 0xFFFFFFFF) + (products[2][3] >> 32)
+
+	// Fourth row
+	first32 += (products[3][3] & 0xFFFFFFFF)
+
+	// Move carry to the next digit
+	third32 += fourth32 >> 32
+	second32 += third32 >> 32
+	first32 += second32 >> 32
+
+	// Remove carry from the current digit
+	fourth32 &= 0xFFFFFFFF
+	third32 &= 0xFFFFFFFF
+	second32 &= 0xFFFFFFFF
+	first32 &= 0xFFFFFFFF
+
+	// Combine components
+	return Uint128{(first32 << 32) | second32, (third32 << 32) | fourth32}
+}
+
+//Function divemode
+func Divmod(x, y Uint128) (Uint128, Uint128) {
+
+	if y.Compare(Uint128{0, 0}) == 0 {
+		log.Fatal("Division by zero")
+	} else if y.Compare(Uint128{0, 1}) == 0 {
+		return x, Uint128{0, 0}
+	} else if y.Compare(y) == 0 {
+		return Uint128{1, 0}, Uint128{0, 0}
+	} else if x.Compare(Uint128{0, 0}) == 0 || x.Compare(y) == -1 {
+		return Uint128{0, 0}, x
+	}
+
+	var d, v Uint128
+	var i uint64
+	for i = 128; i > 0; i-- {
+		d.ShiftL(1)
+		v.ShiftL(1)
+
+		if And128((x.ShiftR(i-1)), Uint128{0, 1}).Compare(Uint128{0, 0}) == 1 {
+			v.Add(Uint128{0, 1})
+		}
+
+		if v.Compare(y) != -1 {
+			v = Sub(v, y)
+			d.Add(Uint128{0, 1})
+		}
+	}
+
+	return d, v
+}
+
+//Add
+func (u Uint128) Add(o Uint128) Uint128 {
+	carry := u.L
+
+	ret := Uint128{u.H + o.H, u.L + o.L}
+
+	if ret.L < carry {
+		ret.H += 1
+	}
+	return ret
+}
+
+// Sub returns a new Uint128 decremented by n.
+func (u Uint128) Sub(n uint64) Uint128 {
+	lo := u.L - n
+	hi := u.H
+	if u.L < lo {
+		hi--
+	}
+	return Uint128{hi, lo}
+}
+
+func Sub(N, M Uint128) Uint128 {
+	A := Uint128{0, N.L - M.L}
+	var C uint64 = (((A.L & M.L) & 1) + (M.L >> 1) + (A.L >> 1)) >> 63
+	A.H = N.H - (M.H + C)
+	return A
+}
+
+func (N Uint128) ShiftL(shift uint64) Uint128 {
+
+	if shift >= 128 {
 		return Uint128{0, 0}
 	} else if shift == 64 {
 		return Uint128{N.L, 0}
@@ -33,19 +169,15 @@ func (N Uint128) ShiftLL(S Uint128) Uint128 {
 	}
 }
 
-func (N Uint128) ShiftRR(S Uint128) Uint128 {
-	var shift uint64 = S.L
+func (N Uint128) ShiftR(shift uint64) Uint128 {
 
-	if S.H > 0 || (shift >= 128) {
+	if shift >= 128 {
 		return Uint128{0, 0}
 	} else if shift == 64 {
 		return Uint128{0, N.H}
 	} else if shift == 0 {
 		return N
 	} else if shift < 64 {
-		fmt.Println("HL ", N.H, N.L)
-		fmt.Println("H ", N.H>>shift)
-		fmt.Println("L ", (N.H<<(64-shift))+(N.L>>shift))
 		return Uint128{N.H >> shift, (N.H << (64 - shift)) + (N.L >> shift)}
 	} else if (128 > shift) && (shift > 64) {
 		return Uint128{0, (N.H >> (shift - 64))}
@@ -54,61 +186,21 @@ func (N Uint128) ShiftRR(S Uint128) Uint128 {
 	}
 }
 
-//compare two uint128
-//-1: less than, 0: equal, 1:greater
-func (u *Uint128) Compare(o *Uint128) int {
-	if u.H < o.H {
-		return -1
-	} else if u.H > o.H {
-		return 1
-	}
-
-	if u.L < o.L {
-		return -1
-	} else if u.L > o.L {
-		return 1
-	}
-
-	return 0
+func Or128(N1, N2 Uint128) Uint128 {
+	return Uint128{N1.H | N2.H, N1.L | N2.L}
 }
 
-//And bits
-func (u *Uint128) And(o *Uint128) {
-	u.H &= o.H
-	u.L &= o.L
+func And128(N1, N2 Uint128) (A Uint128) {
+	A.H = N1.H & N2.H
+	A.L = N1.L & N2.L
+	return A
 }
 
-//Or bits
-func (u *Uint128) Or(o *Uint128) {
-	u.H |= o.H
-	u.L |= u.L
-}
-
-//xor bit
-func (u *Uint128) Xor(o *Uint128) {
-	u.H ^= o.H
-	u.L ^= o.L
-}
-
-//Add
-func (u *Uint128) Add(o *Uint128) {
-	carry := u.L
-	u.L += o.L
-	u.H += o.H
-
-	if u.L < carry {
-		u.H += 1
-	}
-}
-
-// Sub returns a new Uint128 decremented by n.
-func (u Uint128) Sub(n uint64) Uint128 {
-	lo := u.L - n
-	hi := u.H
-	if u.L < lo {
-		hi--
-	}
-	return Uint128{hi, lo}
+func Xor128(N1, N2 Uint128) Uint128 {
+	var A Uint128
+	A.H = N1.H ^ N2.H
+	A.L = N1.L ^ N2.L
+	return A
 }
 
 //parse uint128 from string
@@ -129,7 +221,7 @@ func NewFromString(s string) (u *Uint128, err error) {
 }
 
 //return hexstring of uint128
-func (u *Uint128) HexString() string {
+func (u *Uint128) HexStr() string {
 	if u.H == 0 {
 		return fmt.Sprintf("%x", u.L)
 	}
@@ -148,11 +240,6 @@ func (u Uint128) GetBytes() []byte {
 func (u Uint128) String() string {
 	return hex.EncodeToString(u.GetBytes())
 }
-
-//return string
-//func (u *Uint128) String() string {
-//	return fmt.Sprintf("0x%032x", u.HexString())
-//}
 
 // FromBytes parses the byte slice as a 128 bit big-endian unsigned integer.
 func FromBytes(b []byte) Uint128 {
@@ -179,9 +266,4 @@ func FromString(s string) (Uint128, error) {
 	}
 
 	return FromBytes(bytes), nil
-}
-
-// FromInts takes in two unsigned 64-bit integers and constructs a Uint128.
-func FromInts(h uint64, l uint64) Uint128 {
-	return Uint128{h, l}
 }
