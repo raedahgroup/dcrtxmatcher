@@ -1,4 +1,4 @@
-package main
+package flint
 
 import (
 	"fmt"
@@ -9,8 +9,42 @@ import (
 
 var testdata = [][]field.Uint128{
 	[]field.Uint128{
-		field.Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
-		field.Uint128{0x6FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE}},
+		field.Uint128{0x7FFFFFFFFFFFFFF0, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFF1, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFF2, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFF3, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFF4, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFF5, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFF6, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFF7, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFF8, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFF9, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFFA, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFFB, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFFC, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFFD, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFFE, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFF0F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFF1F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFF2F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFF3F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFF4F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFF5F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFF6F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFF7F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFF8F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFF9F, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFAF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFBF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFCF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFFFDF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFFFEF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFF0FF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFF1FF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFF2FF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x7FFFFFFFFFFFF3FF, 0xFFFFFFFFFFFFFFFE},
+		field.Uint128{0x6FFFFFFFFFFFF4FF, 0xFFFFFFFFFFFFFFFE}},
 	[]field.Uint128{
 		field.Uint128{0x0b1b5dcbb65d530c, 0x4a19d3cfe5033887},
 		field.Uint128{0x27d9803748f6be68, 0x75282823a6ac5d5a}},
@@ -22,18 +56,17 @@ var testdata = [][]field.Uint128{
 func TestSolve(t *testing.T) {
 
 	for i := 0; i < len(testdata); i++ {
-		//		psum := make([]field.Field,len(testdata[i])
-		//		for j := 1; j <= len(testdata[i]); j++ {
-		//			sum := field.Field{}
 
-		//		}
-		f1 := field.NewFF(testdata[i][0])
-		f2 := field.NewFF(testdata[i][1])
-		s1 := f1.Add(f1.Mul(f1))
-		s2 := f2.Add(f2.Mul(f2))
+		psum := make([]field.Field, len(testdata[i]))
+		for j := 0; j < len(testdata[i]); j++ {
+			P := field.Field{}
+			for k := 0; k < len(testdata[i]); k++ {
+				P = P.Add(field.NewFF(testdata[i][k]).Exp(uint64(j + 1)))
+			}
+			psum[j] = P
+		}
 
-		roots := GetRoots(field.Prime.HexStr(), []field.Field{s1, s2}, 2)
-		fmt.Println("roots:", roots)
+		ret, roots := GetRoots(field.Prime.HexStr(), psum, len(testdata[i]))
+		fmt.Printf("ret %d. number roots: %d, roots: %v", ret, len(roots), roots)
 	}
-
 }

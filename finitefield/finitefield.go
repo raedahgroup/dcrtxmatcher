@@ -1,7 +1,6 @@
 package field
 
 import (
-	"fmt"
 	"log"
 )
 
@@ -50,14 +49,13 @@ func (ff *Field) MulAssign(ff2 Field) {
 	u3 := Uint128{0, oh}
 	u4 := Uint128{0, sl}
 	m := Mul(u1, u2).Add(Mul(u3, u4))
-	//let (mh, ml) = as_limbs(m);
 
 	mh := m.H
 	ml := m.L
 
 	// (64 bits * 64 bits) + 128 bits = 129 bits
 	//overflowing_add Returns (a + b) mod 2^N, where N is the width of T in bits.
-	//let (rl, carry) = (sl as u128 * ol as u128).overflowing_add((ml as u128) << 64);
+	//(rl, carry) = (sl as u128 * ol as u128).overflowing_add((ml as u128) << 64);
 	r1 := Uint128{0, sl}
 	r2 := Uint128{0, ol}
 
@@ -69,18 +67,16 @@ func (ff *Field) MulAssign(ff2 Field) {
 	//check if overflow Lo
 	var carry uint64 = 0
 	if rl.L < r3.L {
-		fmt.Println("Lo overflow")
 		carry = 1
 	}
 
 	rl.H = r3.H + r31.H + carry
 	if rl.H < r3.H || rl.H < r31.H {
-		fmt.Println("Hi overflow")
 		carry = 1
 	}
 
 	// (63 bits * 63 bits) + 64 bits + 1 bit = 127 bits
-	// let rh: u128 = (sh as u128 * oh as u128) + (mh as u128) + (carry as u128);
+	// rh u128 = (sh as u128 * oh as u128) + (mh as u128) + (carry as u128);
 	rh := (Mul(u1, u3).Add(Uint128{0, mh})).Add(Uint128{0, carry})
 
 	ret := Reduce2(rh, rl).Reduce()
@@ -120,13 +116,11 @@ func (ff Field) Mul(ff2 Field) Field {
 	//check if overflow Lo
 	var carry uint64 = 0
 	if rl.L < r3.L {
-		fmt.Println("Lo overflow")
 		carry = 1
 	}
 
 	rl.H = r3.H + r31.H + carry
 	if rl.H < r3.H || rl.H < r31.H {
-		fmt.Println("Hi overflow")
 		carry = 1
 	}
 
@@ -135,6 +129,19 @@ func (ff Field) Mul(ff2 Field) Field {
 
 	ret := Reduce2(rh, rl).Reduce()
 	return NewFF(ret)
+}
+
+func (ff Field) Exp(e uint64) Field {
+	ret := &Field{ff.N}
+	if e == uint64(1) {
+		return *ret
+	}
+	var i uint64
+	for i = 1; i < e; i++ {
+		ret.MulAssign(ff)
+	}
+
+	return *ret
 }
 
 func (ff Field) HexStr() string {

@@ -1,8 +1,6 @@
 #include <stddef.h>
 
-/**
- * Solve function from protocol specification.
- *
+/** 
  * Solves the equation system
  *   forall 0 <= i < n. sum_{j=0}^{n-1} out_messages[j]^{i+1} = sums[i]
  * in the finite prime field F_prime for out_messages[].
