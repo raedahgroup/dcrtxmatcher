@@ -18,7 +18,7 @@ func NewFF(n Uint128) Field {
 		return Field{Uint128{0, 0}}
 	}
 	if Prime.Compare(n) != 1 {
-		log.Fatal("N is greater than Prime")
+		log.Fatalf("N is greater than Prime %s", n.HexStr())
 	}
 	return Field{n}
 }

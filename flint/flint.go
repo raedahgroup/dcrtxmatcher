@@ -31,9 +31,9 @@ func GetRoots(ps string, powersums []field.Field, size int) (int, []string) {
 
 	if ret == 0 {
 		omsg := CharsToStrings(C.int(size), msgs)
-		return ret, omsg
+		return int(ret), omsg
 	}
-	return ret, []string{}
+	return int(ret), []string{}
 }
 
 func StringsToChars(b [][]byte) **C.char {

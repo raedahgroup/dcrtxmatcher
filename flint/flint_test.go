@@ -51,6 +51,12 @@ var testdata = [][]field.Uint128{
 	[]field.Uint128{
 		field.Uint128{0x0, 0x4a19d3cfe5033887},
 		field.Uint128{0x0, 0x75282823a6ac5d5a}},
+	[]field.Uint128{
+		field.Uint128{0x4f19d3cfd5033890, 0x0},
+		field.Uint128{0x4f19d3cfd5033892, 0xFFFFFFFFFFFFFFFF},
+		field.Uint128{0x4f19d3cfd5033891, 0x0},
+		field.Uint128{0x4FFFFFFFFFFFFFFF, 0x1},
+		field.Uint128{0x7a282823c6ac5d09, 0x0}},
 }
 
 func TestSolve(t *testing.T) {
@@ -67,6 +73,23 @@ func TestSolve(t *testing.T) {
 		}
 
 		ret, roots := GetRoots(field.Prime.HexStr(), psum, len(testdata[i]))
-		fmt.Printf("ret %d. number roots: %d, roots: %v", ret, len(roots), roots)
+		fmt.Printf("ret %d. number roots: %d, roots: %v\n", ret, len(roots), roots)
+
+		if ret != 0 {
+			t.Error("Can not solve with input data")
+		}
+
+		for _, r := range testdata[i] {
+			exist := false
+			for k := 0; k < len(roots); k++ {
+				if r.HexStr() == roots[k] {
+					exist = true
+					break
+				}
+			}
+			if !exist {
+				t.Errorf("Can not find root %s", r.HexStr())
+			}
+		}
 	}
 }
