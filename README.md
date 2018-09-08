@@ -40,6 +40,6 @@ $ make install
 
 open Makefile.subdirs and replace -W,-r with -r
 $ sudo ./configure --with-mpir=/usr/local/ --with-mpfr=/usr/local/ --prefix=flint
-$ make
+$ make 
 $ make check
 $ make install
