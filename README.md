@@ -6,11 +6,7 @@ Dicemix uses flint libs to solve polynomial to get roots as peer's output addres
 
 There are two options to get it works.
 
-- Build flint from scratch (suggestion)
-- Download header files and pre-built libs
-
-
-* Download header files and pre-built libs:
+1. Download header files and pre-built libs:
 
 - Download libs directory in dcrtxmatcher.
 
@@ -22,7 +18,7 @@ The paths used in this document is referred to ubuntu 18.4
 - usr-local-flint-lib: copy libs of flint to /usr/local/flint/lib
 - flint-include: copy header files of flint to dcrtxmatcher/flint/include
 
-* Build flint from scratch
+2. Build flint from scratch (suggestion)
 
 Download and build following libs. We can switch between mpir and gmp.
 
