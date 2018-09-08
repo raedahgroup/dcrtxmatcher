@@ -24,22 +24,22 @@ Download and build following libs. We can switch between mpir and gmp.
 
 - mpir: http://www.mpir.org/downloads.html
 
-$ apt-get install automake
-$ ./configure && make
-$ make check
-$ make install
+> $ apt-get install automake
+> $ ./configure && make
+> $ make check
+> $ make install
 
 - mpfr: https://www.mpfr.org/mpfr-current/#download
 
-$ sudo apt-get install yasm
-$ make
-$ make check
-$ make install
+> $ sudo apt-get install yasm
+> $ make
+> $ make check
+> $ make install
 
 - flint: http://www.flintlib.org/downloads.html
 
 open Makefile.subdirs and replace -W,-r with -r
-$ sudo ./configure --with-mpir=/usr/local/ --with-mpfr=/usr/local/ --prefix=flint
-$ make 
-$ make check
-$ make install
+> $ sudo ./configure --with-mpir=/usr/local/ --with-mpfr=/usr/local/ --prefix=flint
+> $ make 
+> $ make check
+> $ make install
