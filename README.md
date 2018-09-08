@@ -1,4 +1,5 @@
-** Dcrtxmatcher server for join split transaction
+** Dcrtxmatcher server for join split transaction.
+
 Dcrtxmatcher refers dicemix and coinshuffle++ to perform coinjoin as in https://crypsys.mmci.uni-saarland.de/projects/FastDC/paper.pdf
 
 Dicemix uses flint libs to solve polynomial to get roots as peer's output address.So we need to build flint libs and dependency.
