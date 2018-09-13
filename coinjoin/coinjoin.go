@@ -10,6 +10,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
+	"github.com/raedahgroup/dcrtxmatcher/finitefield"
 	"github.com/raedahgroup/dcrtxmatcher/util"
 )
 
@@ -31,6 +32,12 @@ type (
 		IPAddr      string
 		cmd         int
 		writeChan   chan []byte
+
+		NumMsg uint32
+
+		DcExpVector    []field.Field
+		DcSimpleVector []field.Field
+		Commit         []byte
 	}
 
 	JoinQueue struct {
@@ -230,15 +237,25 @@ func (peer *PeerInfo) ReadMessages() {
 			keyex := &pb.KeyExchangeReq{}
 			err := proto.Unmarshal(message.Data, keyex)
 			if err != nil {
-				log.Errorf("Parsproto.Unmarshal error: %v", err)
+				log.Errorf("KeyExchangeReq Parsproto.Unmarshal error: %v", err)
 				break
 			}
 
 			log.Infof("key ex: %v", keyex)
 
 			peer.JoinSession.keyExchangeChan <- *keyex
-		case C_EXP_DC_VECTOR:
-		case C_SIMPLE_DC_VECTOR:
+		case C_DC_EXP_VECTOR:
+			dcExpVector := &pb.DcExpVector{}
+			log.Debug("C_DC_EXP_VECTOR")
+			err := proto.Unmarshal(message.Data, dcExpVector)
+			if err != nil {
+				log.Errorf("dcExpVector Parsproto.Unmarshal error: %v", err)
+				break
+			}
+			log.Debug("C_DC_EXP_VECTOR end")
+			peer.JoinSession.dcExpVectorChan <- *dcExpVector
+
+		case C_DC_SIMPLE_VECTOR:
 		case C_TX_SIGNATURE:
 		}
 

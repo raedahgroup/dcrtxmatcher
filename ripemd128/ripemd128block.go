@@ -34,7 +34,7 @@ var r_ = [64]uint{
 	15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8,
 }
 
-func _Block(md *digest, p []byte) int {
+func _Block(md *Digest, p []byte) int {
 	n := 0
 	var x [16]uint32
 	var alpha uint32
