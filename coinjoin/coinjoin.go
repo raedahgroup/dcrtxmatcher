@@ -35,9 +35,9 @@ type (
 
 		NumMsg uint32
 
-		DcExpVector    []field.Field
-		DcSimpleVector []field.Field
-		Commit         []byte
+		DcExpVector []field.Field
+		DcXorVector [][]byte
+		Commit      []byte
 	}
 
 	JoinQueue struct {
@@ -255,7 +255,16 @@ func (peer *PeerInfo) ReadMessages() {
 			log.Debug("C_DC_EXP_VECTOR end")
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
 
-		case C_DC_SIMPLE_VECTOR:
+		case C_DC_XOR_VECTOR:
+			dcXorVector := &pb.DcXorVector{}
+			log.Debug("C_DC_XOR_VECTOR")
+			err := proto.Unmarshal(message.Data, dcXorVector)
+			if err != nil {
+				log.Errorf("dcXorVector Parsproto.Unmarshal error: %v", err)
+				break
+			}
+			log.Debug("C_DC_XOR_VECTOR end")
+			peer.JoinSession.dcXorVectorChan <- *dcXorVector
 		case C_TX_SIGNATURE:
 		}
 

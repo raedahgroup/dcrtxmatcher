@@ -53,10 +53,24 @@ var testdata = [][]field.Uint128{
 		field.Uint128{0x0, 0x75282823a6ac5d5a}},
 	[]field.Uint128{
 		field.Uint128{0x4f19d3cfd5033890, 0x0},
-		field.Uint128{0x4f19d3cfd5033892, 0xFFFFFFFFFFFFFFFF},
+		field.Uint128{0x4f19d3cfd5033892, 0xFFFFFFFFFFFFFFFe},
 		field.Uint128{0x4f19d3cfd5033891, 0x0},
 		field.Uint128{0x4FFFFFFFFFFFFFFF, 0x1},
 		field.Uint128{0x7a282823c6ac5d09, 0x0}},
+	[]field.Uint128{
+		field.Uint128{0x0db1d11d5c1d709d, 0xd8d9e10b61e52846},
+		field.Uint128{0x054bd2916e61025b, 0x2f4ce54b9c3bc8fc},
+		field.Uint128{0x0a6c79713de09d8d, 0x45a0e5cbf273733f},
+		field.Uint128{0x0dc1bdef26c55dfb, 0xa6718f1afd04a849},
+		field.Uint128{0x0a77f722cf439f18, 0xc8620c6caca4b6d1},
+		field.Uint128{0x0dfe0902ab3c1663, 0x9e9367d568a166b5}},
+	[]field.Uint128{
+		field.Uint128{0x0e95dd8a4bf5dcfa, 0x37d4a6334a840ca},
+		field.Uint128{0x0d11321ff1bc76e3, 0x40dc069fb3563b42},
+		field.Uint128{0x00907bdb7d4f843e, 0x62121e69493965da},
+		field.Uint128{0x0ddbcc9a2a21264c, 0x27d3ad15f9e73ab3},
+		field.Uint128{0x050f28b2cdaf9959, 0xcaec60626f62cb08},
+		field.Uint128{0x028323d94eae2906, 0x4a5712fe776ef460}},
 }
 
 func TestSolve(t *testing.T) {
@@ -70,6 +84,10 @@ func TestSolve(t *testing.T) {
 				P = P.Add(field.NewFF(testdata[i][k]).Exp(uint64(j + 1)))
 			}
 			psum[j] = P
+		}
+
+		for _, ff := range psum {
+			fmt.Println("psum:", ff.N.HexStr())
 		}
 
 		ret, roots := GetRoots(field.Prime.HexStr(), psum, len(testdata[i]))

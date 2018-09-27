@@ -15,7 +15,8 @@ const (
 	C_KEY_EXCHANGE     = 2
 	C_DC_EXP_VECTOR    = 3
 	C_DC_SIMPLE_VECTOR = 4
-	C_TX_SIGNATURE     = 5
+	C_DC_XOR_VECTOR    = 5
+	C_TX_SIGNATURE     = 6
 )
 
 const (

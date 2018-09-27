@@ -39,10 +39,15 @@ message DcExpVector {
 	bytes commit = 4;
 }
 
-message DcSimpleVector {
+message DcXorVector {
 	uint32 peer_id = 1;
 	uint32 len = 2;
 	bytes vector = 3;
+}
+
+message AllMessages {	
+	uint32 len = 1;
+	bytes msgs = 2;
 }
 
 
