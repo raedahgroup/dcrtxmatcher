@@ -42,7 +42,7 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
 
     if (p <= n) {
 #ifdef DEBUG
-        cout << "Prime must be (way) larger than the size of the input vector." << endl;
+        cout << "Prime must be larger than the size of the input vector." << endl;
 #endif
         return RET_INPUT_ERROR;
     }
@@ -105,7 +105,7 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
     int k = 0;
     for (int i = 0; i < factors.size(); i++) {
         for (int j = 0; j < factors.exp(i); j++) {
-            messages[k] = factors.p(i).get_coeff(0).negmod(p);
+            messages[k] = factors.p(i).get_coeff(0).negmod(p);			
             k++;			
         }
     }
@@ -124,18 +124,18 @@ extern "C" int solve(char** out_messages, const char* prime, const char** const 
 
         // operator= is hard-coded to base 10 and does not check for errors
         if (fmpz_set_str(p._fmpz(), prime, 16)) {
-            return 50;
+            return RET_INPUT_ERROR;
         }
 
         for (size_t i = 0; i < n; i++) {
             if (fmpz_set_str(s[i]._fmpz(), sums[i], 16)) {
-                return 51;
+                return RET_INPUT_ERROR;
             }
         }
 
         for (size_t i = 0; i < n; i++) {			
             if (out_messages[i] == NULL) {
-				out_messages[i] = (char*)malloc(64 * sizeof(char));                
+				out_messages[i] = (char*)malloc(34 * sizeof(char));                
             }
         }
 
@@ -148,14 +148,15 @@ extern "C" int solve(char** out_messages, const char* prime, const char** const 
                     return RET_INTERNAL_ERROR;
                 }
                 fmpz_get_str(out_messages[i], 16, messages[i]._fmpz());
+				
+//				char* msg =	 (char*)malloc(69 * sizeof(char)); 
+//				fmpz_get_str(msg, 10, messages[i]._fmpz());
+				
+				
             }
         }
 		
-		for (size_t i = 0; i < n; i++) {
-            // Impossible
-           cout << "out message: " << out_messages[i] << endl;
-        }
-
+		
         return ret;
     } catch (...) {
         return RET_INTERNAL_ERROR;

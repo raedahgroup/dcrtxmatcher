@@ -5,6 +5,7 @@ package messages;
 message PeerInfo {
 	uint32 peer_id = 1;
 	bytes pk = 2;
+	bytes sharedkey = 3;
 }
 
 message CoinJoinReq {
@@ -18,15 +19,35 @@ message CoinJoinRes {
 }
 
 message KeyExchangeReq {	
-    uint32 session_id = 2;
-	uint32 peer_id = 3;	
+    uint32 session_id = 1;
+	uint32 peer_id = 2;
+	uint32 num_msg = 3;	
 	bytes pk = 4;
 }
 
 message KeyExchangeRes {	
-    uint32 session_id = 2;
-	uint32 peer_id = 3;
+    uint32 session_id = 1;
+	uint32 peer_id = 2;
+	uint32 num_msg = 3;
 	repeated PeerInfo peers = 4;
+}
+
+message DcExpVector {
+	uint32 peer_id = 1;
+	uint32 len = 2;
+	bytes vector = 3;
+	bytes commit = 4;
+}
+
+message DcXorVector {
+	uint32 peer_id = 1;
+	uint32 len = 2;
+	bytes vector = 3;
+}
+
+message AllMessages {	
+	uint32 len = 1;
+	bytes msgs = 2;
 }
 
 

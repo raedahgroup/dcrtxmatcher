@@ -1,115 +1,155 @@
 package field
 
 import (
-	"encoding/binary"
-	"fmt"
 	"log"
-
-	"github.com/cznic/mathutil"
 )
 
-//Redefine uint64 so can add func for this type
-type UInt64 uint64
-
-// P - size of field. The field size 2305843009213693951
-
-const P UInt64 = (1 << 61) - 1
-
-// Field -- where n is between 0 <= n < P.
-type Ff struct {
-	n UInt64
-}
-
-func (ff Ff) Value() uint64 {
-	return uint64(ff.n)
-}
-
-func (ff Ff) Str(base int) string {
-	if base == 10 {
-		return fmt.Sprintf("%d", uint64(ff.n))
-	} else if base == 16 {
-		return fmt.Sprintf("%x", uint64(ff.n))
+type (
+	Field struct {
+		N Uint128
 	}
-	return ""
+)
 
-}
+//Prime of finite field with field size 128 bit (1<<127 - 1)
+var Prime = Uint128{0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF}
 
-func (src UInt64) reduceOnce() UInt64 {
-	var value = (src & P) + (src >> 63)
-	if value == P {
-		return 0
+func NewFF(n Uint128) Field {
+	if Prime.Compare(n) == 0 {
+		return Field{Uint128{0, 0}}
 	}
-	return value
-}
-
-func (src UInt64) reduceOnceAssert() UInt64 {
-	var res = src.reduceOnce()
-	if res >= P {
-		log.Fatalf("Error: Expected result should be less than field size %d >= %d", res, P)
+	if Prime.Compare(n) != 1 {
+		log.Fatalf("N is greater than Prime %s", n.HexStr())
 	}
-	return res
+	return Field{n}
 }
 
-func (src UInt64) reduceOnceMul(op2 UInt64) UInt64 {
-	var value = (src << 3) | (op2 >> 61)
-	value = (op2 & P) + value
-	if value == P {
-		return 0
+func (ff Field) Add(ff2 Field) Field {
+	return Field{(ff.N.Add(ff2.N)).Reduce()}
+}
+
+func (ff Field) Neg() Field {
+	return Field{Sub(Prime, ff.N)}
+}
+
+func (ff Field) Sub(ff2 Field) Field {
+	return ff.Add(ff2.Neg())
+}
+
+func (ff *Field) MulAssign(ff2 Field) {
+
+	sh := ff.N.H
+	sl := ff.N.L
+
+	oh := ff2.N.H
+	ol := ff2.N.L
+
+	// (64 bits * 63 bits) + (64 bits * 63 bits) = 128 bits
+	u1 := Uint128{0, sh}
+	u2 := Uint128{0, ol}
+	u3 := Uint128{0, oh}
+	u4 := Uint128{0, sl}
+	m := Mul(u1, u2).Add(Mul(u3, u4))
+
+	mh := m.H
+	ml := m.L
+
+	// (64 bits * 64 bits) + 128 bits = 129 bits
+	//overflowing_add Returns (a + b) mod 2^N, where N is the width of T in bits.
+	//(rl, carry) = (sl as u128 * ol as u128).overflowing_add((ml as u128) << 64);
+	r1 := Uint128{0, sl}
+	r2 := Uint128{0, ol}
+
+	r3 := Mul(r1, r2)
+	r31 := Uint128{0, ml}.ShiftL(64)
+
+	rl := Uint128{}
+	rl.L = r3.L + r31.L
+	//check if overflow Lo
+	var carry uint64 = 0
+	if rl.L < r3.L {
+		carry = 1
 	}
-	return value
-}
 
-func asLimbs(x UInt64) (uint32, uint32) {
-	return uint32(x >> 32), uint32(x)
-}
-
-// NewField reduces initial value in the field
-func NewField(value UInt64) Ff {
-	return Ff{value.reduceOnce().reduceOnceAssert()}
-}
-
-// Parse UInt64 from bytes
-func Uint64FromBytes(b []byte) UInt64 {
-	return UInt64(binary.BigEndian.Uint64(b[:8]))
-}
-
-// Neg negates number in the field
-func (src Ff) Neg() Ff {
-	return Ff{(P - src.n).reduceOnce().reduceOnceAssert()}
-}
-
-// Add adds two field elements and reduces the resulting number in the field
-func (src Ff) Add(op2 Ff) Ff {
-	return Ff{(src.n + op2.n).reduceOnce().reduceOnceAssert()}
-}
-
-// AddAssign works same as Add, assigns final value to src
-func (src *Ff) AddAssign(op2 Ff) {
-	*src = src.Add(op2)
-}
-
-// Sub subtracts two field elements and reduces the resulting number in the field
-func (src Ff) Sub(op2 Ff) Ff {
-	if op2.n > src.n {
-		return Ff{(P - op2.n + src.n).reduceOnce().reduceOnceAssert()}
+	rl.H = r3.H + r31.H + carry
+	if rl.H < r3.H || rl.H < r31.H {
+		carry = 1
 	}
-	return Ff{(src.n - op2.n).reduceOnce().reduceOnceAssert()}
+
+	// (63 bits * 63 bits) + 64 bits + 1 bit = 127 bits
+	// rh u128 = (sh as u128 * oh as u128) + (mh as u128) + (carry as u128);
+	rh := (Mul(u1, u3).Add(Uint128{0, mh})).Add(Uint128{0, carry})
+
+	ret := Reduce2(rh, rl).Reduce()
+	ff.N = ret
 }
 
-// SubAssign works same as Sub, assigns final value to src
-func (src *Ff) SubAssign(op2 Ff) {
-	*src = src.Sub(op2)
+func (ff Field) Mul(ff2 Field) Field {
+
+	sh := ff.N.H
+	sl := ff.N.L
+
+	oh := ff2.N.H
+	ol := ff2.N.L
+
+	// (64 bits * 63 bits) + (64 bits * 63 bits) = 128 bits
+	u1 := Uint128{0, sh}
+	u2 := Uint128{0, ol}
+	u3 := Uint128{0, oh}
+	u4 := Uint128{0, sl}
+	m := Mul(u1, u2).Add(Mul(u3, u4))
+
+	mh := m.H
+	ml := m.L
+
+	// (64 bits * 64 bits) + 128 bits = 129 bits
+	//overflowing_add Returns (a + b) mod 2^N, where N is the width of T in bits.
+	//let (rl, carry) = (sl as u128 * ol as u128).overflowing_add((ml as u128) << 64);
+
+	r1 := Uint128{0, sl}
+	r2 := Uint128{0, ol}
+
+	r3 := Mul(r1, r2)
+	r31 := Uint128{0, ml}.ShiftL(64)
+
+	rl := Uint128{}
+	rl.L = r3.L + r31.L
+	//check if overflow Lo
+	var carry uint64 = 0
+	if rl.L < r3.L {
+		carry = 1
+	}
+
+	rl.H = r3.H + r31.H + carry
+	if rl.H < r3.H || rl.H < r31.H {
+		carry = 1
+	}
+
+	// (63 bits * 63 bits) + 64 bits + 1 bit = 127 bits
+	rh := (Mul(u1, u3).Add(Uint128{0, mh})).Add(Uint128{0, carry})
+
+	ret := Reduce2(rh, rl).Reduce()
+	return NewFF(ret)
 }
 
-// Mul muliplies two field elements and reduces the resulting number in the field
-func (src Ff) Mul(op2 Ff) Ff {
-	var high, low uint64 = mathutil.MulUint128_64(uint64(src.n), uint64(op2.n))
-	var rh, rl = UInt64(high), UInt64(low)
-	var res = rh.reduceOnceMul(rl).reduceOnceAssert()
-	return Ff{res}
+func (ff Field) Exp(e uint64) Field {
+	ret := &Field{ff.N}
+	if e == uint64(1) {
+		return *ret
+	}
+	var i uint64
+	for i = 1; i < e; i++ {
+		ret.MulAssign(ff)
+	}
+
+	return *ret
 }
 
-// MulAssign works same as Mul, assigns final value to src
-func (src *Ff) MulAssign(op2 Ff) {
-	*src = src.Mul(op2)
+func (ff Field) HexStr() string {
+	n := &ff.N
+	return n.HexStr()
+}
+
+func (ff Field) String() string {
+	n := &ff.N
+	return n.String()
 }

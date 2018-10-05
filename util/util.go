@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"log"
 	"time"
 )
@@ -56,4 +57,43 @@ func MustRandInt32() int32 {
 func GetTimeString(t time.Time) string {
 	ts := t.Format("2006-01-02 15:04:05")
 	return ts[11:]
+}
+
+// XorBytes takes two byte arrays of the same length, computes the compentwise xor
+// of the inputs, and returns the resulting array.  Returns an error if the
+// input arrays are not the same length.
+func XorBytes(b1 []byte, b2 []byte) ([]byte, error) {
+	if len(b1) == 0 {
+		return b2, nil
+	}
+	if len(b2) == 0 {
+		return b1, nil
+	}
+	if len(b1) != len(b2) {
+		return nil, errors.New("byte arrays not the same length")
+	}
+
+	result := make([]byte, len(b1))
+
+	for i := 0; i < len(b1); i++ {
+		result[i] = b1[i] ^ b2[i]
+	}
+
+	return result, nil
+}
+
+// XorNBytes takes variable byte arrays of the same length, computes the compentwise xor
+// of the inputs, and returns the resulting array.  Returns an error if the
+// input arrays are not the same length.
+func XorNBytes(bs ...[]byte) ([]byte, error) {
+	ret := make([]byte, 0)
+	var err error = nil
+	for _, b := range bs {
+		ret, err = XorBytes(ret, b)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return ret, nil
 }
