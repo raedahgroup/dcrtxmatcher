@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/dcrd/wire"
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
@@ -35,9 +36,16 @@ type (
 
 		NumMsg uint32
 
+		InputIndex []int
+		Publisher  bool
+
 		DcExpVector []field.Field
 		DcXorVector [][]byte
 		Commit      []byte
+
+		TxIns       *wire.MsgTx
+		SignedTx    *wire.MsgTx
+		TicketPrice int64
 	}
 
 	JoinQueue struct {
@@ -243,6 +251,8 @@ func (peer *PeerInfo) ReadMessages() {
 
 			log.Infof("key ex: %v", keyex)
 
+			keyex.PeerId = peer.Id
+
 			peer.JoinSession.keyExchangeChan <- *keyex
 		case C_DC_EXP_VECTOR:
 			dcExpVector := &pb.DcExpVector{}
@@ -257,15 +267,46 @@ func (peer *PeerInfo) ReadMessages() {
 
 		case C_DC_XOR_VECTOR:
 			dcXorVector := &pb.DcXorVector{}
-			log.Debug("C_DC_XOR_VECTOR")
+
 			err := proto.Unmarshal(message.Data, dcXorVector)
 			if err != nil {
 				log.Errorf("dcXorVector Parsproto.Unmarshal error: %v", err)
 				break
 			}
-			log.Debug("C_DC_XOR_VECTOR end")
+			log.Debug("C_DC_XOR_VECTOR")
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
-		case C_TX_SIGNATURE:
+
+		case C_TX_INPUTS:
+			txins := &pb.TxInputs{}
+			log.Debug("C_TX_INPUTS")
+
+			err := proto.Unmarshal(message.Data, txins)
+			if err != nil {
+				log.Errorf("TxInputs Parsproto.Unmarshal error: %v", err)
+				break
+			}
+			txins.PeerId = peer.Id
+			peer.JoinSession.txInputsChan <- *txins
+
+		case C_TX_SIGN:
+			signTx := &pb.JoinTx{}
+			err := proto.Unmarshal(message.Data, signTx)
+			if err != nil {
+				log.Errorf("TxInputs Parsproto.Unmarshal error: %v", err)
+				break
+			}
+			log.Debug("C_TX_SIGN")
+			signTx.PeerId = peer.Id
+			peer.JoinSession.txSignedTxChan <- *signTx
+
+		case C_TX_PUBLISH_RESULT:
+			log.Debug("C_TX_PUBLISH_RESULT")
+			if peer.Id != peer.JoinSession.Publisher {
+				log.Debugf("peerId %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
+				continue
+			}
+			peer.JoinSession.txPublishResultChan <- message.Data
+
 		}
 
 	}
