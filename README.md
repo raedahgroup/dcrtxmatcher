@@ -32,6 +32,14 @@ Download and build following libs. We can switch between mpir and gmp.
 
 \> $ make install
 
+- gmp: https://gmplib.org/
+
+\> $ ./configure && make
+
+\> $ make check
+
+\> $ make install
+
 - mpfr: https://www.mpfr.org/mpfr-current/#download
 
 \> $ sudo apt-get install yasm
