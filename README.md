@@ -20,7 +20,7 @@ The paths used in this document is referred to ubuntu 18.4
 
 2. Build flint from scratch (suggestion)
 
-Download and build following libs. We can switch between mpir and gmp.
+Download and build following libs:
 
 - mpir: http://www.mpir.org/downloads.html
 
