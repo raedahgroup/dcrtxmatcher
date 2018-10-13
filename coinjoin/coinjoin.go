@@ -241,7 +241,7 @@ func (peer *PeerInfo) ReadMessages() {
 
 		switch message.MsgType {
 		case C_KEY_EXCHANGE:
-			log.Debug("C_KEY_EXCHANGE")
+			//log.Debug("C_KEY_EXCHANGE")
 			keyex := &pb.KeyExchangeReq{}
 			err := proto.Unmarshal(message.Data, keyex)
 			if err != nil {
@@ -249,20 +249,20 @@ func (peer *PeerInfo) ReadMessages() {
 				break
 			}
 
-			log.Infof("key ex: %v", keyex)
+			//log.Infof("key ex: %v", keyex)
 
 			keyex.PeerId = peer.Id
 
 			peer.JoinSession.keyExchangeChan <- *keyex
 		case C_DC_EXP_VECTOR:
 			dcExpVector := &pb.DcExpVector{}
-			log.Debug("C_DC_EXP_VECTOR")
+			//log.Debug("C_DC_EXP_VECTOR")
 			err := proto.Unmarshal(message.Data, dcExpVector)
 			if err != nil {
 				log.Errorf("dcExpVector Parsproto.Unmarshal error: %v", err)
 				break
 			}
-			log.Debug("C_DC_EXP_VECTOR end")
+			//log.Debug("C_DC_EXP_VECTOR end")
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
 
 		case C_DC_XOR_VECTOR:
@@ -273,12 +273,12 @@ func (peer *PeerInfo) ReadMessages() {
 				log.Errorf("dcXorVector Parsproto.Unmarshal error: %v", err)
 				break
 			}
-			log.Debug("C_DC_XOR_VECTOR")
+			//log.Debug("C_DC_XOR_VECTOR")
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
 
 		case C_TX_INPUTS:
 			txins := &pb.TxInputs{}
-			log.Debug("C_TX_INPUTS")
+			//log.Debug("C_TX_INPUTS")
 
 			err := proto.Unmarshal(message.Data, txins)
 			if err != nil {
@@ -295,12 +295,12 @@ func (peer *PeerInfo) ReadMessages() {
 				log.Errorf("TxInputs Parsproto.Unmarshal error: %v", err)
 				break
 			}
-			log.Debug("C_TX_SIGN")
+			//log.Debug("C_TX_SIGN")
 			signTx.PeerId = peer.Id
 			peer.JoinSession.txSignedTxChan <- *signTx
 
 		case C_TX_PUBLISH_RESULT:
-			log.Debug("C_TX_PUBLISH_RESULT")
+			//log.Debug("C_TX_PUBLISH_RESULT")
 			if peer.Id != peer.JoinSession.Publisher {
 				log.Debugf("peerId %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
 				continue

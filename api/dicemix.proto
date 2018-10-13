@@ -6,6 +6,7 @@ message PeerInfo {
 	uint32 peer_id = 1;
 	bytes pk = 2;
 	bytes sharedkey = 3;
+	uint32 num_msg = 4;
 }
 
 message CoinJoinReq {
@@ -27,9 +28,8 @@ message KeyExchangeReq {
 
 message KeyExchangeRes {	
     uint32 session_id = 1;
-	uint32 peer_id = 2;
-	uint32 num_msg = 3;
-	repeated PeerInfo peers = 4;
+	uint32 peer_id = 2;	
+	repeated PeerInfo peers = 3;
 }
 
 message DcExpVector {
