@@ -24,22 +24,32 @@ The paths used in this document is referred to ubuntu 18.4
 ## Install software
 
 \> $ sudo apt-get update
+
 \> $ sudo apt-get install unzip
+
 \> $ sudo apt-get install lzip
+
 \> $ apt-get install automake
+
 \> $ sudo apt-get install yasm
+
 \> $ sudo apt-get install build-essential
 
-## Download the following libs before install
+## Download the following zip files
 
 \> $ mkdir flint-build
+
 \> $ cd flint-build
-\> $ wget http://www.mpir.org/mpir-3.0.0.zip    
+
+\> $ wget http://www.mpir.org/mpir-3.0.0.zip 
+
 \> $ wget https://gmplib.org/download/gmp/gmp-6.1.2.tar.lz
+
 \> $ wget https://www.mpfr.org/mpfr-current/mpfr-4.0.1.tar.xz
+
 \> $ wget http://www.flintlib.org/flint-2.5.2.tar.gz
 
-Building libraries:
+Building libraries
 
 ## mpir: http://www.mpir.org
 
