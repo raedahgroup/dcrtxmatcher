@@ -1,3 +1,5 @@
+/* This source file is reference from https://github.com/ElementsProject/dicemix
+*/
 #include <stddef.h>
 
 /** 

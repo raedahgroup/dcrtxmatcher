@@ -80,7 +80,7 @@ func (joinSession *JoinSession) run() {
 					peer.NumMsg = req.NumMsg
 					joinSession.PKs = append(joinSession.PKs, &pb.PeerInfo{PeerId: peer.Id, Pk: peer.PK, NumMsg: req.NumMsg})
 
-					log.Debug("Received key exchange request from peer", peer.Id, peer.NumMsg)
+					log.Debug("Received key exchange request from peer", peer.Id)
 				}
 
 				//if there is enough pk, broadcast pks to all clients

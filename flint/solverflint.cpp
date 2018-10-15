@@ -1,3 +1,5 @@
+/* This source file is reference from https://github.com/ElementsProject/dicemix
+*/
 #include <vector>
 #include <cstring>
 
@@ -8,7 +10,7 @@
 using namespace std;
 using namespace flint;
 
-#define DEBUG 1
+#define DEBUG 0
 #define STANDALONE 1
 
 #define RET_INVALID           1
