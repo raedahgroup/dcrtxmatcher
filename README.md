@@ -7,7 +7,7 @@ Dicemix uses flint libs to solve polynomial to get roots as peer's output addres
 
 There are two options to get it works.
 
-1. Download header files and pre-built libs
+## Download header files and pre-built libs
 
 - Download libs directory in dcrtxmatcher.
 
@@ -19,9 +19,9 @@ The paths used in this document is referred to ubuntu 18.4
 - usr-local-flint-lib: copy libs of flint to /usr/local/flint/lib
 - flint-include: copy header files of flint to dcrtxmatcher/flint/include
 
-2. Build flint from scratch (suggestion)
+## Build flint from scratch (suggestion)
 
-## Install software
+#### Install software
 
 \> $ sudo apt-get update
 
@@ -35,7 +35,7 @@ The paths used in this document is referred to ubuntu 18.4
 
 \> $ sudo apt-get install build-essential
 
-## Download the following zip files
+#### Download the following zip files
 
 \> $ mkdir flint-build
 
@@ -51,7 +51,7 @@ The paths used in this document is referred to ubuntu 18.4
 
 Building libraries
 
-## mpir: http://www.mpir.org
+#### mpir: http://www.mpir.org
 
 \> $ unzip mpir-3.0.0.zip
 
@@ -63,7 +63,7 @@ Building libraries
 
 \> $ make install
 
-## gmp: https://gmplib.org/
+#### gmp: https://gmplib.org/
 
 \> $ lzip -d gmp-6.1.2.tar.lz 
   
@@ -77,7 +77,7 @@ Building libraries
 
 \> $ make install
 
-## mpfr: https://www.mpfr.org
+#### mpfr: https://www.mpfr.org
 
 \> $ cd ../mpfr-4.0.1
 
@@ -87,9 +87,9 @@ Building libraries
 
 \> $ make install
 
-## flint: http://www.flintlib.org
+#### flint: http://www.flintlib.org
 
-open Makefile.subdirs and replace -Wl,-r with -r
+open Makefile.subdirs, at line 62, replace -Wl,-r with -r 
 
 \> $ cd ../flint-2.5.2
 
