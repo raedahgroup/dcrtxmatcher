@@ -75,7 +75,7 @@ func run(ctx context.Context) error {
 		intf := fmt.Sprintf(":%d", config.Port)
 		dcmixlog.Infof("Listening on %s", intf)
 
-		http.ListenAndServe(intf, nil)
+		go http.ListenAndServe(intf, nil)
 
 	} else {
 		mcfg := &matcher.Config{
