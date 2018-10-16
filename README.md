@@ -118,8 +118,6 @@ open Makefile.subdirs, at line 62, replace -Wl,-r with -r
 
 \> $ source ~/.profile
 
-\> $ apt install go-dep
-
 \> $ mkdir -p ~/go/src/github.com/raedahgroup
 
 \> $ cd ~/go/src/github.com/raedahgroup
