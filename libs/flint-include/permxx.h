@@ -28,8 +28,8 @@
 
 #include "perm.h"
 
-#include "flintxx/frandxx.h"
-#include "flintxx/mp.h"
+#include "frandxx.h"
+#include "mp.h"
 
 namespace flint {
 class permxx

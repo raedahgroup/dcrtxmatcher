@@ -32,8 +32,8 @@
 #include "nmod_polyxx.h"
 #include "permxx.h"
 
-#include "flintxx/matrix.h"
-#include "flintxx/stdmath.h"
+#include "matrix.h"
+#include "stdmath.h"
 
 // NOTE: it is *not* valid to use empty nmod_poly_matxx matrices!
 // TODO nullspace member

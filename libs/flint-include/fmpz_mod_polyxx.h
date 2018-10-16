@@ -32,13 +32,13 @@
 #include "fmpz_polyxx.h"
 #include "nmod_polyxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/flint_exception.h"
-#include "flintxx/frandxx.h"
-#include "flintxx/ltuple.h"
-#include "flintxx/stdmath.h"
-#include "flintxx/vector.h"
+#include "expression.h"
+#include "flint_classes.h"
+#include "flint_exception.h"
+#include "frandxx.h"
+#include "ltuple.h"
+#include "stdmath.h"
+#include "vector.h"
 
 // TODO create/use fmpz_modxx class?
 

@@ -39,11 +39,11 @@
 #include "fmpzxx.h"
 #include "fmpqxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/evaluation_tools.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/stdmath.h"
-#include "flintxx/vector.h"
+#include "expression.h"
+#include "evaluation_tools.h"
+#include "flint_classes.h"
+#include "stdmath.h"
+#include "vector.h"
 
 namespace flint {
 //////////////////////////////////////////////////////////////////////////////

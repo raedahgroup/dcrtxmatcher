@@ -34,9 +34,9 @@
 
 #include "fmpqxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/traits.h"
+#include "expression.h"
+#include "flint_classes.h"
+#include "traits.h"
 
 // TODO exhibit this as a specialisation of a generic poly<fmpzxx>
 // TODO lazy version of numref?

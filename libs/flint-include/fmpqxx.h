@@ -30,10 +30,10 @@
 
 #include "fmpq.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/flint_exception.h"
-#include "flintxx/frandxx.h"
+#include "expression.h"
+#include "flint_classes.h"
+#include "flint_exception.h"
+#include "frandxx.h"
 #include "fmpzxx.h"
 
 // TODO exhibit this as a specialisation of a generic fraction<fmpzxx>
@@ -413,7 +413,7 @@ FLINT_DEFINE_BINARY_EXPR_COND2(pow_op, fmpqxx,
 
 // fmpq_vecxx
 
-#include "flintxx/vector.h"
+#include "vector.h"
 
 namespace flint {
 namespace detail {

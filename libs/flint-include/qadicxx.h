@@ -30,9 +30,9 @@
 
 #include "qadic.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/matrix.h" // trace ...
+#include "expression.h"
+#include "flint_classes.h"
+#include "matrix.h" // trace ...
 
 #include "padicxx.h"
 

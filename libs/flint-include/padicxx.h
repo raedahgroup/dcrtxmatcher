@@ -31,13 +31,13 @@
 
 #include "padic.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/flint_exception.h"
-#include "flintxx/frandxx.h"
-#include "flintxx/stdmath.h"
-#include "flintxx/traits.h"
-#include "flintxx/tuple.h"
+#include "expression.h"
+#include "flint_classes.h"
+#include "flint_exception.h"
+#include "frandxx.h"
+#include "stdmath.h"
+#include "traits.h"
+#include "tuple.h"
 
 #include "fmpzxx.h"
 #include "fmpqxx.h"

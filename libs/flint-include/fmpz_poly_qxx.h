@@ -35,8 +35,8 @@
 #include "fmpz_polyxx.h"
 #include "fmpqxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
+#include "expression.h"
+#include "flint_classes.h"
 
 namespace flint {
 FLINT_DEFINE_UNOP(fmpz_poly_qxx_num)

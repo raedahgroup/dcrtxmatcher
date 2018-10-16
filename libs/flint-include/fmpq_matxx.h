@@ -32,8 +32,8 @@
 #include "fmpz_matxx.h"
 #include "fmpz_vecxx.h"
 
-#include "flintxx/ltuple.h"
-#include "flintxx/matrix.h"
+#include "ltuple.h"
+#include "matrix.h"
 
 // TODO wrap entry_num, entry_den?
 // TODO numden_rowwise_2

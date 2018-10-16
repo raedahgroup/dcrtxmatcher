@@ -28,7 +28,7 @@
 
 #include "fmpzxx.h"
 #include "fmpz_vec.h"
-#include "flintxx/vector.h"
+#include "vector.h"
 
 namespace flint {
 namespace detail {

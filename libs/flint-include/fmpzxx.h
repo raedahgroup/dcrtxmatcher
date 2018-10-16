@@ -29,13 +29,13 @@
 #include <cstdlib>
 #include <vector>
 
-#include "flintxx/evaluation_tools.h"
-#include "flintxx/expression.h"
-#include "flintxx/expression_traits.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/frandxx.h"
-#include "flintxx/ltuple.h"
-#include "flintxx/stdmath.h"
+#include "evaluation_tools.h"
+#include "expression.h"
+#include "expression_traits.h"
+#include "flint_classes.h"
+#include "frandxx.h"
+#include "ltuple.h"
+#include "stdmath.h"
 
 #include "fmpz.h"
 

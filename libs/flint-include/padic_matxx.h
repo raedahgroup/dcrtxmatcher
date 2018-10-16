@@ -31,7 +31,7 @@
 #include "padicxx.h"
 #include "fmpq_matxx.h"
 
-#include "flintxx/matrix.h"
+#include "matrix.h"
 
 // TODO input and output
 

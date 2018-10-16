@@ -29,7 +29,7 @@
 #include "fmpz_factor.h"
 #include "fmpz_vec.h"
 
-#include "flintxx/ltuple.h"
+#include "ltuple.h"
 
 // TODO codegen
 // TODO factor_pp1 multiple return values

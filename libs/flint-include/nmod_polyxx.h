@@ -36,13 +36,13 @@
 #include "fmpz_polyxx.h"
 #include "fmpq_polyxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/ltuple.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/flint_exception.h"
-#include "flintxx/frandxx.h"
-#include "flintxx/stdmath.h"
-#include "flintxx/traits.h"
+#include "expression.h"
+#include "ltuple.h"
+#include "flint_classes.h"
+#include "flint_exception.h"
+#include "frandxx.h"
+#include "stdmath.h"
+#include "traits.h"
 
 // TODO exhibit this as a specialisation of a generic poly<nmodxx>
 // TODO input

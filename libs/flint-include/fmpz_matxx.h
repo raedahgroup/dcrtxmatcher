@@ -33,9 +33,9 @@
 #include "fmpz_polyxx.h"
 #include "permxx.h"
 
-#include "flintxx/ltuple.h"
-#include "flintxx/matrix.h"
-#include "flintxx/traits_fwd.h"
+#include "ltuple.h"
+#include "matrix.h"
+#include "traits_fwd.h"
 
 // TODO input and output
 // TODO addmul

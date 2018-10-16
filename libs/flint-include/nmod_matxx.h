@@ -35,9 +35,9 @@
 #include "fmpz_matxx.h" // for modular reduction
 #include "permxx.h"
 
-#include "flintxx/flint_exception.h"
-#include "flintxx/ltuple.h"
-#include "flintxx/matrix.h"
+#include "flint_exception.h"
+#include "ltuple.h"
+#include "matrix.h"
 
 // TODO addmul
 // TODO default argument for mat_solve_triu etc?

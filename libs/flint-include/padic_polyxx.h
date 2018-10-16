@@ -32,7 +32,7 @@
 #include "fmpz_polyxx.h"
 #include "fmpq_polyxx.h"
 
-#include "flintxx/stdmath.h"
+#include "stdmath.h"
 
 // TODO input and output
 

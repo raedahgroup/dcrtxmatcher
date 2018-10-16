@@ -35,13 +35,13 @@
 #include "fmpzxx.h"
 #include "fmpz_vecxx.h"
 
-#include "flintxx/expression.h"
-#include "flintxx/flint_classes.h"
-#include "flintxx/flint_exception.h"
-#include "flintxx/frandxx.h"
-#include "flintxx/ltuple.h"
-#include "flintxx/traits.h"
-#include "flintxx/traits_fwd.h"
+#include "expression.h"
+#include "flint_classes.h"
+#include "flint_exception.h"
+#include "frandxx.h"
+#include "ltuple.h"
+#include "traits.h"
+#include "traits_fwd.h"
 
 // TODO exhibit this as a specialisation of a generic poly<fmpzxx>
 // TODO newton basis?

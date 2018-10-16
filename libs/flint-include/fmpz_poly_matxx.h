@@ -32,7 +32,7 @@
 #include "fmpz_polyxx.h"
 #include "permxx.h"
 
-#include "flintxx/matrix.h"
+#include "matrix.h"
 
 namespace flint {
 FLINT_DEFINE_UNOP(prod)
