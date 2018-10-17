@@ -10,7 +10,7 @@ package flint
 */
 import "C"
 import "unsafe"
-import "github.com/raedahgroup/dcrtxmatcher/finitefield"
+import "github.com/decred/dcrwallet/dcrtxclient/finitefield"
 
 //solve polynomial with ps is prime number
 //sums is slice of finite field with length in size

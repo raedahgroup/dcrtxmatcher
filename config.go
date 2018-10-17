@@ -8,7 +8,6 @@ package main
 import (
 	"context"
 	"fmt"
-	//"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -18,10 +17,8 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/decred/dcrd/dcrutil"
-	"github.com/raedahgroup/dcrtxmatcher/util"
-
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/decred/dcrwallet/version"
-
 	flags "github.com/jessevdk/go-flags"
 )
 

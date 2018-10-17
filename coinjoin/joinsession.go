@@ -14,10 +14,16 @@ import (
 	"math/rand"
 
 	"github.com/decred/dcrd/wire"
-	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
-	"github.com/raedahgroup/dcrtxmatcher/finitefield"
+	//	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
+	//	"github.com/raedahgroup/dcrtxmatcher/finitefield"
+	//	"github.com/raedahgroup/dcrtxmatcher/flint"
+	//	"github.com/raedahgroup/dcrtxmatcher/util"
+
+	pb "github.com/decred/dcrwallet/dcrtxclient/api/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/finitefield"
+	"github.com/decred/dcrwallet/dcrtxclient/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/raedahgroup/dcrtxmatcher/flint"
-	"github.com/raedahgroup/dcrtxmatcher/util"
 )
 
 func init() {
@@ -85,7 +91,7 @@ func (joinSession *JoinSession) run() {
 
 				//if there is enough pk, broadcast pks to all clients
 				if len(joinSession.Peers) == len(joinSession.PKs) {
-					log.Debug("All peers have sent public key, broadcast public key slice to all", peer.Id)
+					log.Debug("All peers have sent public key, broadcast all public keys to peers")
 					keyex := &pb.KeyExchangeRes{
 						Peers: joinSession.PKs,
 					}
@@ -96,7 +102,7 @@ func (joinSession *JoinSession) run() {
 						break
 					}
 
-					message := NewMessage(S_KEY_EXCHANGE, data)
+					message := messages.NewMessage(messages.S_KEY_EXCHANGE, data)
 					for _, p := range joinSession.Peers {
 						p.writeChan <- message.ToBytes()
 					}
@@ -146,13 +152,15 @@ func (joinSession *JoinSession) run() {
 				}
 
 				for _, ff := range dcCombine {
-					log.Debug("dc-combine:", ff.N.HexStr())
+					log.Debug("Dc-combine:", ff.N.HexStr())
 				}
 
 				log.Debug("Will use flint to resolve polynomial to get roots as hash of pkscript")
 
 				ret, roots := flint.GetRoots(field.Prime.HexStr(), dcCombine, polyDegree)
-				log.Infof("func returns: %d \nNumber roots: %d \nRoots: %v\n", ret, len(roots), roots)
+				log.Infof("Func returns: %d", ret)
+				log.Infof("Number roots: %d", len(roots))
+				log.Infof("Roots: %v", roots)
 
 				//check return value of GetRoots
 				if ret != 0 {
@@ -186,7 +194,7 @@ func (joinSession *JoinSession) run() {
 					break
 				}
 
-				msg := NewMessage(S_DC_EXP_VECTOR, data)
+				msg := messages.NewMessage(messages.S_DC_EXP_VECTOR, data)
 				//broadcast all peers
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- msg.ToBytes()
@@ -235,17 +243,17 @@ func (joinSession *JoinSession) run() {
 			}
 			if allSubmit {
 				for _, msg := range allmsgs {
-					log.Debugf("Pkscript %x\n", msg)
+					log.Debugf("Pkscript %x", msg)
 				}
 
 				//broadcast result to peers in session
 				dcxorRet := &pb.DcXorVectorResult{}
 				dcxorData, err := proto.Marshal(dcxorRet)
 				if err != nil {
-					log.Errorf("error Marshal DcXorVectorResult %v\n", err)
+					log.Errorf("error Marshal DcXorVectorResult %v", err)
 				}
 
-				message := NewMessage(S_DC_XOR_VECTOR, dcxorData)
+				message := messages.NewMessage(messages.S_DC_XOR_VECTOR, dcxorData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- message.ToBytes()
 				}
@@ -262,13 +270,13 @@ func (joinSession *JoinSession) run() {
 			buf := bytes.NewReader(txins.Txins)
 			err := tx.BtcDecode(buf, 0)
 			if err != nil {
-				log.Errorf("error BtcDecode %v\n", err)
+				log.Errorf("error BtcDecode %v", err)
 				break
 			}
 
 			peer.TxIns = &tx
 
-			log.Debugf("Received txin from peer %d, number txin :%d, number txout :%d\n\n", peer.Id, len(tx.TxIn), len(tx.TxOut))
+			log.Debugf("Received txin from peer %d, number txin :%d, number txout :%d", peer.Id, len(tx.TxIn), len(tx.TxOut))
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if peer.TxIns == nil {
@@ -328,7 +336,7 @@ func (joinSession *JoinSession) run() {
 				if err != nil {
 
 				}
-				joinTxMsg := NewMessage(S_JOINED_TX, joinTxData)
+				joinTxMsg := messages.NewMessage(messages.S_JOINED_TX, joinTxData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- joinTxMsg.ToBytes()
 				}
@@ -394,7 +402,7 @@ func (joinSession *JoinSession) run() {
 				publisher := rand.Intn(len(joinSession.Peers))
 				//fmt.Println("publisher index ", publisher)
 
-				joinTxMsg := NewMessage(S_TX_SIGN, joinTxData)
+				joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, joinTxData)
 				n := 0
 				for _, peer := range joinSession.Peers {
 					if n == publisher {
@@ -411,7 +419,7 @@ func (joinSession *JoinSession) run() {
 
 		case pubResult := <-joinSession.txPublishResultChan:
 
-			msg := NewMessage(S_TX_PUBLISH_RESULT, pubResult)
+			msg := messages.NewMessage(messages.S_TX_PUBLISH_RESULT, pubResult)
 			for _, peer := range joinSession.Peers {
 				peer.writeChan <- msg.ToBytes()
 			}

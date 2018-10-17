@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	pb "github.com/raedahgroup/dcrtxmatcher/api/matcherrpc"
+	pb "github.com/decred/dcrwallet/dcrtxclient/api/matcherrpc"
 	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 	"google.golang.org/grpc"

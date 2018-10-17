@@ -9,7 +9,7 @@ import (
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 	"golang.org/x/net/context"
 
-	pb "github.com/raedahgroup/dcrtxmatcher/api/matcherrpc"
+	pb "github.com/decred/dcrwallet/dcrtxclient/api/matcherrpc"
 )
 
 type SplitTxMatcherService struct {

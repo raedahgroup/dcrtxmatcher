@@ -10,9 +10,15 @@ import (
 	"github.com/decred/dcrd/wire"
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
-	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
-	"github.com/raedahgroup/dcrtxmatcher/finitefield"
-	"github.com/raedahgroup/dcrtxmatcher/util"
+
+	//	pb "github.com/raedahgroup/dcrtxmatcher/api/messages"
+	//	"github.com/raedahgroup/dcrtxmatcher/finitefield"
+	//	"github.com/raedahgroup/dcrtxmatcher/util"
+
+	pb "github.com/decred/dcrwallet/dcrtxclient/api/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/finitefield"
+	"github.com/decred/dcrwallet/dcrtxclient/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 )
 
 const (
@@ -117,7 +123,7 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 					break
 				}
 
-				message := NewMessage(S_JOIN_RESPONSE, data)
+				message := messages.NewMessage(messages.S_JOIN_RESPONSE, data)
 
 				peer.writeChan <- message.ToBytes()
 			}
@@ -233,14 +239,14 @@ func (peer *PeerInfo) ReadMessages() {
 			continue
 		}
 
-		message, err := ParseMessage(data)
+		message, err := messages.ParseMessage(data)
 		if err != nil {
 			log.Errorf("ParseMessage error: %v", err)
 			break
 		}
 
 		switch message.MsgType {
-		case C_KEY_EXCHANGE:
+		case messages.C_KEY_EXCHANGE:
 			//log.Debug("C_KEY_EXCHANGE")
 			keyex := &pb.KeyExchangeReq{}
 			err := proto.Unmarshal(message.Data, keyex)
@@ -254,7 +260,7 @@ func (peer *PeerInfo) ReadMessages() {
 			keyex.PeerId = peer.Id
 
 			peer.JoinSession.keyExchangeChan <- *keyex
-		case C_DC_EXP_VECTOR:
+		case messages.C_DC_EXP_VECTOR:
 			dcExpVector := &pb.DcExpVector{}
 			//log.Debug("C_DC_EXP_VECTOR")
 			err := proto.Unmarshal(message.Data, dcExpVector)
@@ -265,7 +271,7 @@ func (peer *PeerInfo) ReadMessages() {
 			//log.Debug("C_DC_EXP_VECTOR end")
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
 
-		case C_DC_XOR_VECTOR:
+		case messages.C_DC_XOR_VECTOR:
 			dcXorVector := &pb.DcXorVector{}
 
 			err := proto.Unmarshal(message.Data, dcXorVector)
@@ -276,7 +282,7 @@ func (peer *PeerInfo) ReadMessages() {
 			//log.Debug("C_DC_XOR_VECTOR")
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
 
-		case C_TX_INPUTS:
+		case messages.C_TX_INPUTS:
 			txins := &pb.TxInputs{}
 			//log.Debug("C_TX_INPUTS")
 
@@ -288,7 +294,7 @@ func (peer *PeerInfo) ReadMessages() {
 			txins.PeerId = peer.Id
 			peer.JoinSession.txInputsChan <- *txins
 
-		case C_TX_SIGN:
+		case messages.C_TX_SIGN:
 			signTx := &pb.JoinTx{}
 			err := proto.Unmarshal(message.Data, signTx)
 			if err != nil {
@@ -299,7 +305,7 @@ func (peer *PeerInfo) ReadMessages() {
 			signTx.PeerId = peer.Id
 			peer.JoinSession.txSignedTxChan <- *signTx
 
-		case C_TX_PUBLISH_RESULT:
+		case messages.C_TX_PUBLISH_RESULT:
 			//log.Debug("C_TX_PUBLISH_RESULT")
 			if peer.Id != peer.JoinSession.Publisher {
 				log.Debugf("peerId %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)

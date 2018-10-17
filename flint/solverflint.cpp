@@ -19,7 +19,7 @@ using namespace flint;
 
 int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& sums) {
     vector<fmpzxx>::size_type n = sums.size();
-	 cout << "Start solve_impl" << endl;
+	 //cout << "Start solve_impl" << endl;
     if (n < 2) {
 #ifdef DEBUG
         cout << "Input vector too short." << endl;
@@ -76,14 +76,14 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
     }
 
 #if defined(DEBUG) && defined(STANDALONE)
-    cout << "Polynomial: " << endl; print(poly); cout << endl << endl;
+    //cout << "Polynomial: " << endl; print(poly); cout << endl << endl;
 #endif
 
     // Factor
     factors.set_factor_kaltofen_shoup(poly);
 
 #if defined(DEBUG) && defined(STANDALONE)
-    cout << "Factors: " << endl; print(factors); cout << endl << endl;
+    //cout << "Factors: " << endl; print(factors); cout << endl << endl;
 #endif
 
     vector<fmpzxx>::size_type n_roots = 0;

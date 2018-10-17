@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raedahgroup/dcrtxmatcher/util"
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/rs/xid"
 )
 
