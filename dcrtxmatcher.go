@@ -57,7 +57,7 @@ func run(ctx context.Context) error {
 			}
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
-				log.Infof("Can not upgrade from remote address %v", r.RemoteAddr)
+				log.Errorf("Can not upgrade from remote address %v", r.RemoteAddr)
 				return
 			}
 

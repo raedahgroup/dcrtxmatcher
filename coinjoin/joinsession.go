@@ -107,7 +107,7 @@ func (joinSession *JoinSession) run() {
 			joinSession.Lock()
 			peerInfo := joinSession.Peers[data.PeerId]
 			if peerInfo == nil {
-				fmt.Println("dcExpVector not include peerid")
+				log.Debug("dcExpVector not include peerid")
 				break
 			}
 
@@ -124,7 +124,7 @@ func (joinSession *JoinSession) run() {
 			//fmt.Printf("commit %x\n", peerInfo.Commit)
 			//fmt.Printf("vector size %x\n", len(vector))
 
-			fmt.Println("Received dc-net exponential from peer", peerInfo.Id)
+			log.Debug("Received dc-net exponential from peer", peerInfo.Id)
 
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
@@ -135,7 +135,7 @@ func (joinSession *JoinSession) run() {
 
 			//solve polynomial to get roots
 			if allSubmit {
-				fmt.Println("All peers sent dc-net exponential vector. Combine dc-net exponential from all peers to remove padding")
+				log.Debug("All peers sent dc-net exponential vector. Combine dc-net exponential from all peers to remove padding")
 				polyDegree := len(vector)
 				dcCombine := make([]field.Field, polyDegree)
 
@@ -146,13 +146,19 @@ func (joinSession *JoinSession) run() {
 				}
 
 				for _, ff := range dcCombine {
-					fmt.Println("dc-combine:", ff.N.HexStr())
+					log.Debug("dc-combine:", ff.N.HexStr())
 				}
 
-				fmt.Println("Will use flint to resolve polynomial to get roots as hash of pkscript")
+				log.Debug("Will use flint to resolve polynomial to get roots as hash of pkscript")
 
 				ret, roots := flint.GetRoots(field.Prime.HexStr(), dcCombine, polyDegree)
-				fmt.Printf("ret %d. number roots: %d, roots: %v\n", ret, len(roots), roots)
+				log.Infof("func returns: %d \nNumber roots: %d \nRoots: %v\n", ret, len(roots), roots)
+
+				//check return value of GetRoots
+				if ret != 0 {
+					//peers sent incorrect dc-net expopential vector
+
+				}
 
 				//send back to all peers
 				allMsgHash := make([]byte, 0)
@@ -161,7 +167,7 @@ func (joinSession *JoinSession) run() {
 					str := fmt.Sprintf("%032v", root)
 					bytes, err := hex.DecodeString(str)
 					if err != nil {
-						fmt.Errorf("error DecodeString %v", err)
+						log.Errorf("error DecodeString %v", err)
 					}
 					//fmt.Println("size of root in bytes ", len(bytes))
 					//remove zero message
@@ -199,10 +205,10 @@ func (joinSession *JoinSession) run() {
 
 			peerInfo := joinSession.Peers[data.PeerId]
 			if peerInfo == nil {
-				fmt.Println("dcExpVector not include peerid")
+				log.Debug("dcExpVector not include peerid")
 			}
 			peerInfo.DcXorVector = dcXor
-			fmt.Println("Received dc-net xor vector from peer", peerInfo.Id)
+			log.Debug("Received dc-net xor vector from peer", peerInfo.Id)
 
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
@@ -216,12 +222,12 @@ func (joinSession *JoinSession) run() {
 			allmsgs = make([][]byte, len(peerInfo.DcXorVector))
 			var err error = nil
 			if allSubmit {
-				fmt.Println("Combine xor vector to remove padding xor and get all pkscripts hash")
+				log.Debug("Combine xor vector to remove padding xor and get all pkscripts hash")
 				for i := 0; i < len(peerInfo.DcXorVector); i++ {
 					for _, peer := range joinSession.Peers {
 						allmsgs[i], err = util.XorBytes(allmsgs[i], peer.DcXorVector[i])
 						if err != nil {
-							fmt.Errorf("error XorBytes %v", err)
+							log.Errorf("error XorBytes %v", err)
 
 						}
 					}
@@ -229,22 +235,21 @@ func (joinSession *JoinSession) run() {
 			}
 			if allSubmit {
 				for _, msg := range allmsgs {
-					fmt.Printf("Pkscript %x\n", msg)
+					log.Debugf("Pkscript %x\n", msg)
 				}
 
 				//broadcast result to peers in session
-
 				dcxorRet := &pb.DcXorVectorResult{}
 				dcxorData, err := proto.Marshal(dcxorRet)
 				if err != nil {
-					fmt.Errorf("error Marshal DcXorVectorResult %v\n", err)
+					log.Errorf("error Marshal DcXorVectorResult %v\n", err)
 				}
 
 				message := NewMessage(S_DC_XOR_VECTOR, dcxorData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- message.ToBytes()
 				}
-				fmt.Println("Broadcasted all pkscripts to peers in join session")
+				log.Debug("Broadcasted all pkscripts to peers in join session")
 
 			}
 			joinSession.Unlock()
@@ -257,13 +262,13 @@ func (joinSession *JoinSession) run() {
 			buf := bytes.NewReader(txins.Txins)
 			err := tx.BtcDecode(buf, 0)
 			if err != nil {
-				fmt.Errorf("error BtcDecode %v\n", err)
+				log.Errorf("error BtcDecode %v\n", err)
 				break
 			}
 
 			peer.TxIns = &tx
 
-			fmt.Printf("Received txin from peer %d, number txin :%d, number txout :%d\n\n", peer.Id, len(tx.TxIn), len(tx.TxOut))
+			log.Debugf("Received txin from peer %d, number txin :%d, number txout :%d\n\n", peer.Id, len(tx.TxIn), len(tx.TxOut))
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if peer.TxIns == nil {
@@ -275,7 +280,7 @@ func (joinSession *JoinSession) run() {
 			//build the transaction
 			var joinedtx *wire.MsgTx
 			if allSubmit {
-				fmt.Println("All peers sent txin, will create join tx for signing")
+				log.Debug("All peers sent txin, will create join tx for signing")
 				for _, peer := range joinSession.Peers {
 					if joinedtx == nil {
 						joinedtx = peer.TxIns
@@ -312,7 +317,7 @@ func (joinSession *JoinSession) run() {
 				buffTx.Grow(joinedtx.SerializeSize())
 				err := joinedtx.BtcEncode(buffTx, 0)
 				if err != nil {
-					fmt.Errorf("error BtcEncode %v", err)
+					log.Errorf("error BtcEncode %v", err)
 					break
 				}
 
@@ -327,7 +332,7 @@ func (joinSession *JoinSession) run() {
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- joinTxMsg.ToBytes()
 				}
-				fmt.Println("Broadcast joined tx to all peers")
+				log.Debug("Broadcast joined tx to all peers")
 			}
 		case signedTx := <-joinSession.txSignedTxChan:
 			peer := joinSession.Peers[signedTx.PeerId]
@@ -343,7 +348,7 @@ func (joinSession *JoinSession) run() {
 			}
 			peer.SignedTx = &tx
 
-			fmt.Println("Received signed tx from peer", peer.Id)
+			log.Debug("Received signed tx from peer", peer.Id)
 
 			if joinSession.JoinedTx == nil {
 				//fmt.Println("peer submit signed tx, peerid, index", peer.Id, peer.InputIndex)
@@ -366,7 +371,7 @@ func (joinSession *JoinSession) run() {
 			if allSubmit {
 				//fmt.Println("len signedTx txin", len(joinSession.JoinedTx.TxIn), len(joinSession.JoinedTx.TxIn))
 				//send jointx to peers and set publisher
-				fmt.Println("Merge signed tx from all peers")
+				log.Info("Merge signed tx from all peers")
 				buffTx := bytes.NewBuffer(nil)
 				buffTx.Grow(joinSession.JoinedTx.SerializeSize())
 				//				for _, joinTxin := range joinSession.JoinedTx.TxIn {
@@ -374,7 +379,7 @@ func (joinSession *JoinSession) run() {
 				//				}
 				err := joinSession.JoinedTx.BtcEncode(buffTx, 0)
 				if err != nil {
-					fmt.Errorf("error BtcEncode %v", err)
+					log.Errorf("error BtcEncode %v", err)
 					break
 				}
 
@@ -394,7 +399,7 @@ func (joinSession *JoinSession) run() {
 				for _, peer := range joinSession.Peers {
 					if n == publisher {
 						peer.Publisher = true
-						fmt.Println("Peer is random selected to publish tx", peer.Id)
+						log.Infof("Peer %d is random selected to publish tx", peer.Id)
 						joinSession.Publisher = peer.Id
 						peer.writeChan <- joinTxMsg.ToBytes()
 						break
@@ -410,7 +415,7 @@ func (joinSession *JoinSession) run() {
 			for _, peer := range joinSession.Peers {
 				peer.writeChan <- msg.ToBytes()
 			}
-			fmt.Println("Broadcast published tx to all peers")
+			log.Info("Broadcast published tx to all peers")
 
 		}
 	}
