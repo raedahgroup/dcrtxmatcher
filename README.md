@@ -3,9 +3,9 @@
 
 Dcrtxmatcher is a coinshuffle++ server which allows decred ticket buyers to create coinjoin transactions in a trustless way, as defined in the coinshuffle++ paper https://crypsys.mmci.uni-saarland.de/projects/FastDC/paper.pdf
 
-Within coinshuffle++, the dicemix protocol is used for the participants to exchange information. Dicemix uses the flint library to solve polynomial to get the roots and the peer's output address. The flint library is a required dependency.
+Within coinshuffle++, the dicemix protocol is used for the participants to exchange information. Dicemix uses the flint library to solve polynomial to get the roots and the peer's output address. The flint library is a required dependency, and is the method that is suggested by the authors of the coinshuffle++ paper.
 
-There are two options to get it works. The first is download header files and prebuilt libs. This method is quick and easy. The second is building from scratch with source download.
+There are two options to get it working. The first is download header files and prebuilt libs. This method is quick and easy. The second is building from scratch with source download.
 
 ## Download header files and pre-built libs
 
