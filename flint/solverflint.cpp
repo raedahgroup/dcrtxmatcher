@@ -18,8 +18,7 @@ using namespace flint;
 #define RET_INPUT_ERROR     101
 
 int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& sums) {
-    vector<fmpzxx>::size_type n = sums.size();
-	 //cout << "Start solve_impl" << endl;
+    vector<fmpzxx>::size_type n = sums.size();	 
     if (n < 2) {
 #ifdef DEBUG
         cout << "Input vector too short." << endl;
@@ -115,8 +114,8 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
     return 0;
 }
 
-//solve with sums and output message are base 16 
-extern "C" int solve(char** out_messages, const char* prime, const char** const sums, size_t n) {   
+//Solve polynomial with powersums and output message are base 16 
+extern "C" int solve(char** out_messages, const char* prime, const char** const sums, size_t n, int base) {   
     try {
         fmpzxx p;
         fmpzxx m;
@@ -125,12 +124,12 @@ extern "C" int solve(char** out_messages, const char* prime, const char** const 
         vector<fmpzxx> messages(n);
 
         // operator= is hard-coded to base 10 and does not check for errors
-        if (fmpz_set_str(p._fmpz(), prime, 16)) {
+        if (fmpz_set_str(p._fmpz(), prime, base)) {
             return RET_INPUT_ERROR;
         }
 
         for (size_t i = 0; i < n; i++) {
-            if (fmpz_set_str(s[i]._fmpz(), sums[i], 16)) {
+            if (fmpz_set_str(s[i]._fmpz(), sums[i], base)) {
                 return RET_INPUT_ERROR;
             }
         }
@@ -146,14 +145,10 @@ extern "C" int solve(char** out_messages, const char* prime, const char** const 
         if (ret == 0) {
             for (size_t i = 0; i < n; i++) {
                 // Impossible
-                if (messages[i].sizeinbase(16) > strlen(prime)) {
+                if (messages[i].sizeinbase(base) > strlen(prime)) {
                     return RET_INTERNAL_ERROR;
                 }
-                fmpz_get_str(out_messages[i], 16, messages[i]._fmpz());
-				
-//				char* msg =	 (char*)malloc(69 * sizeof(char)); 
-//				fmpz_get_str(msg, 10, messages[i]._fmpz());
-				
+                fmpz_get_str(out_messages[i], base, messages[i]._fmpz());
 				
             }
         }
@@ -165,52 +160,4 @@ extern "C" int solve(char** out_messages, const char* prime, const char** const 
     }
 }
 
-//solve with sums and output message are base 10 
-extern "C" int solves(char** out_messages, const char* prime, const char** const sums, size_t n) {   
-    try {
-        fmpzxx p;
-        fmpzxx m;
-
-        vector<fmpzxx> s(n);
-        vector<fmpzxx> messages(n);
-
-        // operator= is hard-coded to base 10 and does not check for errors
-        if (fmpz_set_str(p._fmpz(), prime, 10)) {
-            return RET_INPUT_ERROR;
-        }
-
-        for (size_t i = 0; i < n; i++) {
-            if (fmpz_set_str(s[i]._fmpz(), sums[i], 10)) {
-                return RET_INPUT_ERROR;
-            }
-        }
-
-        for (size_t i = 0; i < n; i++) {			
-            if (out_messages[i] == NULL) {
-				out_messages[i] = (char*)malloc(64 * sizeof(char));                
-            }
-        }
-
-        int ret = solve_poly(messages, p, s);
-
-        if (ret == 0) {
-            for (size_t i = 0; i < n; i++) {
-                // Impossible
-                if (messages[i].sizeinbase(10) > strlen(prime)) {
-                    return RET_INTERNAL_ERROR;
-                }
-                fmpz_get_str(out_messages[i], 10, messages[i]._fmpz());
-            }
-        }
-		
-		for (size_t i = 0; i < n; i++) {
-            // Impossible
-           cout << "out message: " << out_messages[i] << endl;
-        }
-
-        return ret;
-    } catch (...) {
-        return RET_INTERNAL_ERROR;
-    }
-}
 
