@@ -17,6 +17,7 @@ using namespace flint;
 #define RET_INTERNAL_ERROR  100
 #define RET_INPUT_ERROR     101
 
+// solve_poly solves polynomial with gmp library's input parameters.
 int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& sums) {
     vector<fmpzxx>::size_type n = sums.size();	 
     if (n < 2) {
@@ -114,7 +115,10 @@ int solve_poly(vector<fmpzxx>& messages, const fmpzxx& p, const vector<fmpzxx>& 
     return 0;
 }
 
-//Solve polynomial with powersums and output message are base 16 
+// Solve solves polynomial with power sums.
+// output message could be base (10, 16..).
+// prime is prime number in the same base.
+// base is base type (10, 16) 
 extern "C" int solve(char** out_messages, const char* prime, const char** const sums, size_t n, int base) {   
     try {
         fmpzxx p;

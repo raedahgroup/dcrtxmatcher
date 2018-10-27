@@ -26,6 +26,8 @@ func main() {
 	}
 }
 
+// run executes dcrtxmatcher server. Base on setting on config file
+// server does coinshuffle++ if blind server option is enable, if not does normal coin join method.
 func run(ctx context.Context) error {
 
 	config, _, err := loadConfig(ctx)
@@ -44,9 +46,9 @@ func run(ctx context.Context) error {
 			MinParticipants: config.MinParticipants,
 			RandomIndex:     config.RandomIndex,
 			JoinTicker:      config.JoinTicker,
-			WaitingTimer:    config.WaitingTimer,
+			RoundTimeOut:    config.WaitingTimer,
 		}
-		//websocket
+		// Create websocket server
 		joinQueue := coinjoin.NewJoinQueue()
 
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +63,7 @@ func run(ctx context.Context) error {
 				return
 			}
 
-			//add ws connection to dicemix for management
+			// Add websocket connection to dicemix for management
 			peer := coinjoin.NewPeer(conn)
 			peer.IPAddr = r.RemoteAddr
 
@@ -86,8 +88,7 @@ func run(ctx context.Context) error {
 		}
 		//set matcher config
 		ticketJoiner := matcher.NewTicketJoiner(mcfg)
-
-		waitingQueue := matcher.NewWaitingQueue()
+		joinQueue := matcher.NewJoinQueue()
 
 		intf := fmt.Sprintf(":%d", config.Port)
 
@@ -100,10 +101,10 @@ func run(ctx context.Context) error {
 		if done(ctx) {
 			return ctx.Err()
 		}
-		go ticketJoiner.Run(waitingQueue)
+		go ticketJoiner.Run(joinQueue)
 
 		server := grpc.NewServer()
-		pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner, waitingQueue))
+		pb.RegisterSplitTxMatcherServiceServer(server, NewSplitTxMatcherService(ticketJoiner, joinQueue))
 
 		if done(ctx) {
 			return ctx.Err()

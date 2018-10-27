@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/raedahgroup/dcrtxmatcher/finitefield"
+	"github.com/decred/dcrwallet/dcrtxclient/finitefield"
 )
 
 var testdata = [][]field.Uint128{
@@ -87,11 +87,11 @@ func TestSolve(t *testing.T) {
 		}
 
 		for _, ff := range psum {
-			fmt.Println("psum:", ff.N.HexStr())
+			fmt.Println("power sum:", ff.N.HexStr())
 		}
 
 		ret, roots := GetRoots(field.Prime.HexStr(), psum, len(testdata[i]))
-		fmt.Printf("ret %d. number roots: %d, roots: %v\n", ret, len(roots), roots)
+		fmt.Printf("Ret %d. Number roots: %d. Roots: %v\n", ret, len(roots), roots)
 
 		if ret != 0 {
 			t.Error("Can not solve with input data")

@@ -12,9 +12,9 @@ import "C"
 import "unsafe"
 import "github.com/decred/dcrwallet/dcrtxclient/finitefield"
 
-//Solve polynomial with ps is prime number
-//sums is slice of finite field with length in size
-//return the roots in slice of string
+// GetRoots solves polynomial with ps is prime number
+// sums is slice of finite field with length in size.
+// Returns the roots in slice of string.
 func GetRoots(ps string, powersums []field.Field, size int) (int, []string) {
 
 	sumb := [][]byte{}
@@ -30,13 +30,13 @@ func GetRoots(ps string, powersums []field.Field, size int) (int, []string) {
 	defer C.free(unsafe.Pointer(p))
 
 	if ret == 0 {
-		omsg := CharsToStrings(C.int(size), msgs)
-		return int(ret), omsg
+		omsgs := CharsToStrings(C.int(size), msgs)
+		return int(ret), omsgs
 	}
 	return int(ret), []string{}
 }
 
-//Convert slice of bytes(slice of string) in golang to string in C
+// StringsToChars converts slice of bytes(slice of string) in golang to string in C
 func StringsToChars(b [][]byte) **C.char {
 	outer := make([]*C.char, len(b)+1)
 	for i, inner := range b {
@@ -45,13 +45,13 @@ func StringsToChars(b [][]byte) **C.char {
 	return (**C.char)(unsafe.Pointer(&outer[0]))
 }
 
-//Convert string in C to slice of string in golang
+//CharsToStrings converts string in C to slice of string in golang
 func CharsToStrings(argc C.int, argv **C.char) []string {
 	length := int(argc)
-	tmpslice := (*[1 << 30]*C.char)(unsafe.Pointer(argv))[:length:length]
-	gostrings := make([]string, length)
-	for i, s := range tmpslice {
-		gostrings[i] = C.GoString(s)
+	tmpSlice := (*[1 << 30]*C.char)(unsafe.Pointer(argv))[:length:length]
+	goString := make([]string, length)
+	for i, s := range tmpSlice {
+		goString[i] = C.GoString(s)
 	}
-	return gostrings
+	return goString
 }

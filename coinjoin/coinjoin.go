@@ -25,6 +25,7 @@ const (
 )
 
 type (
+	// PeerInfo contains data of peer.
 	PeerInfo struct {
 		Id          uint32
 		SessionId   uint32
@@ -36,10 +37,10 @@ type (
 		cmd         int
 		writeChan   chan []byte
 
-		//Peer number of pkscripts ~ number of tickets purchase
+		// Peer number of pkscripts ~ number of tickets purchase
 		NumMsg uint32
 
-		//Record peer input index
+		// Record peer's input index
 		InputIndex []int
 		Publisher  bool
 
@@ -53,9 +54,9 @@ type (
 	}
 
 	JoinQueue struct {
-		sync.Mutex
-		WaitingPeers map[uint32]*PeerInfo
-		NewPeerChan  chan *PeerInfo
+		mu          sync.Mutex
+		Peers       map[uint32]*PeerInfo
+		NewPeerChan chan *PeerInfo
 	}
 
 	DiceMix struct {
@@ -64,26 +65,40 @@ type (
 		config        *Config
 	}
 
-	// Config stores the parameters for the matcher engine
 	Config struct {
 		MinParticipants int
 		RandomIndex     bool
 		JoinTicker      int
-		WaitingTimer    int
+		RoundTimeOut    int
 	}
 )
 
+// ResetData sets new id and session id for peer.
+// Also reset other data to prepare for new session.
+func (peer *PeerInfo) ResetData(id, sessionId uint32) {
+	peer.Id = id
+	peer.SessionId = sessionId
+
+	peer.InputIndex = []int{}
+	peer.DcExpVector = []field.Field{}
+	peer.DcXorVector = [][]byte{}
+	peer.PK = []byte{}
+	peer.TxIns = nil
+	peer.SignedTx = nil
+	peer.Commit = []byte{}
+}
+
+// Run does join transaction in every 2 minutes (setting in config file).
+// If there is enough peers for join transaction, creates new join session.
 func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
-	//Perform join transaction every 2 minutes (setting in config file)
 	for {
 		select {
 		case peer := <-joinQueue.NewPeerChan:
 			joinQueue.AddNewPeer(peer)
 
 		case <-diceMix.sessionTicker.C:
-			//start join session
 			timeStartJoin := time.Now().Add(time.Second * time.Duration(diceMix.config.JoinTicker))
-			queueSize := len(joinQueue.WaitingPeers)
+			queueSize := len(joinQueue.Peers)
 			if queueSize == 0 {
 				log.Info("Zero participant connected")
 				log.Info("Will start next join session at", util.GetTimeString(timeStartJoin))
@@ -95,12 +110,12 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 				continue
 			}
 
-			joinQueue.Lock()
+			joinQueue.mu.Lock()
 			sessionId := GenId()
-			joinSession := NewJoinSession(sessionId)
+			joinSession := NewJoinSession(sessionId, diceMix.config.RoundTimeOut)
 			log.Infof("Start coin join transaction - sessionId %v", sessionId)
 
-			for id, peer := range joinQueue.WaitingPeers {
+			for id, peer := range joinQueue.Peers {
 				peer.SessionId = sessionId
 				joinSession.Peers[id] = peer
 				peer.JoinQueue = nil
@@ -113,7 +128,7 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 
 				data, err := proto.Marshal(coinJoinRes)
 				if err != nil {
-					log.Errorf("proto.Marshal coinJoinRes error: %v", err)
+					log.Errorf("Can not marshal coinJoinRes: %v", err)
 					break
 				}
 
@@ -121,28 +136,30 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 				peer.writeChan <- message.ToBytes()
 			}
 
-			//Init new queue for next incoming peers
-			joinQueue.WaitingPeers = make(map[uint32]*PeerInfo)
-			joinQueue.Unlock()
+			// Init new queue for next incoming peers
+			joinQueue.Peers = make(map[uint32]*PeerInfo)
+			joinQueue.mu.Unlock()
 
-			//Run the join session
-			joinSession.Config = diceMix.config
+			// Run the join session
+			joinSession.Config = &Config{RoundTimeOut: diceMix.config.RoundTimeOut}
 			go joinSession.run()
 
 		}
 	}
 }
 
+// NewJoinQueue creates new join queue.
 func NewJoinQueue() *JoinQueue {
 	return &JoinQueue{
-		WaitingPeers: make(map[uint32]*PeerInfo),
-		NewPeerChan:  make(chan *PeerInfo),
+		Peers:       make(map[uint32]*PeerInfo),
+		NewPeerChan: make(chan *PeerInfo),
 	}
 }
 
+// NewDiceMix returns new dicemix struct with the given config.
 func NewDiceMix(config *Config) *DiceMix {
 
-	//Log time will start join transaction
+	// Log time will start join transaction
 	timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
 	log.Info("Will start join session at", util.GetTimeString(timeStartJoin))
 
@@ -153,33 +170,36 @@ func NewDiceMix(config *Config) *DiceMix {
 	}
 }
 
+// AddNewPeer adds new requested peer to join queue.
 func (joinQueue *JoinQueue) AddNewPeer(peer *PeerInfo) {
 
-	joinQueue.Lock()
-	defer joinQueue.Unlock()
+	joinQueue.mu.Lock()
+	defer joinQueue.mu.Unlock()
 
 	log.Infof("New peer connected %v - %v", peer.Id, peer.IPAddr)
-	joinQueue.WaitingPeers[peer.Id] = peer
+	joinQueue.Peers[peer.Id] = peer
 	peer.JoinQueue = joinQueue
 
-	log.Infof("Size of waiting peers %v", len(joinQueue.WaitingPeers))
+	log.Infof("Number of waiting peers %v", len(joinQueue.Peers))
 
-	//Listening for peer's incoming messages and waiting to write data
+	// Listening for peer's incoming messages and waiting to write data
 	go peer.ReadMessages()
 	go peer.WriteMessages()
 }
 
+// RemovePeer removes peer from join queue.
 func (joinQueue *JoinQueue) RemovePeer(peer *PeerInfo) {
 	if joinQueue == nil {
 		return
 	}
 
-	joinQueue.Lock()
-	defer joinQueue.Unlock()
-	delete(joinQueue.WaitingPeers, peer.Id)
+	joinQueue.mu.Lock()
+	defer joinQueue.mu.Unlock()
+	delete(joinQueue.Peers, peer.Id)
 	log.Infof("Removed peer %v - %v from join queue", peer.Id, peer.IPAddr)
 }
 
+// NewPeer creates new peer data with provided websocket connection.
 func NewPeer(wsconn *websocket.Conn) *PeerInfo {
 	return &PeerInfo{
 		Id:        GenId(),
@@ -188,6 +208,7 @@ func NewPeer(wsconn *websocket.Conn) *PeerInfo {
 	}
 }
 
+// WriteMessages writes data to peer's websocket.
 func (peer *PeerInfo) WriteMessages() {
 	for {
 		select {
@@ -196,9 +217,10 @@ func (peer *PeerInfo) WriteMessages() {
 			if err != nil {
 				log.Errorf("Write messsage to socket error: %v", err)
 				if peer.JoinSession != nil {
-					//remove from joinsesion
+					// Remove from joinsesion
 					delete(peer.JoinSession.Peers, peer.Id)
 					log.Infof("Peer %v disconnected", peer.Id)
+					// TODO: Consider malicious peer, inform to other peers.
 				} else {
 					peer.JoinQueue.RemovePeer(peer)
 					log.Infof("Peer %v disconnected", peer.Id)
@@ -209,6 +231,7 @@ func (peer *PeerInfo) WriteMessages() {
 	}
 }
 
+// ReadMessages reads incoming data on peer's websocket and parses received data.
 func (peer *PeerInfo) ReadMessages() {
 
 	defer peer.Conn.Close()
@@ -216,10 +239,10 @@ func (peer *PeerInfo) ReadMessages() {
 
 		cmd, data, err := peer.Conn.ReadMessage()
 		if err != nil {
-			log.Errorf("Read messsage from socket error: %v", err)
+			log.Errorf("Can not read data from websockett: %v", err)
 			if peer.JoinSession != nil {
-				//Peer may be disconnected, remove from join session
-				//TODO: check status of joinsession and have proper process
+				// Peer may disconnected, remove from join session
+				// TODO: check status of joinsession and have proper process
 				delete(peer.JoinSession.Peers, peer.Id)
 				log.Infof("Peer %v disconnected", peer.Id)
 			} else {
@@ -235,17 +258,17 @@ func (peer *PeerInfo) ReadMessages() {
 
 		message, err := messages.ParseMessage(data)
 		if err != nil {
-			log.Errorf("ParseMessage error: %v", err)
+			log.Errorf("Can not parse data from websocket: %v", err)
 			break
 		}
-		//Check message type, depends on which message type
-		//forwarding the message data to equivalent channel
+
+		// Check message type, forwarding the message data to corresponding channel.
 		switch message.MsgType {
 		case messages.C_KEY_EXCHANGE:
 			keyex := &pb.KeyExchangeReq{}
 			err := proto.Unmarshal(message.Data, keyex)
 			if err != nil {
-				log.Errorf("KeyExchangeReq Parse proto.Unmarshal error: %v", err)
+				log.Errorf("Can not unmarshal KeyExchangeReq: %v", err)
 				break
 			}
 			keyex.PeerId = peer.Id
@@ -255,25 +278,27 @@ func (peer *PeerInfo) ReadMessages() {
 			dcExpVector := &pb.DcExpVector{}
 			err := proto.Unmarshal(message.Data, dcExpVector)
 			if err != nil {
-				log.Errorf("dcExpVector Parse proto.Unmarshal error: %v", err)
+				log.Errorf("Can not unmarshal DcExpVector: %v", err)
 				break
 			}
+			dcExpVector.PeerId = peer.Id
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
 
 		case messages.C_DC_XOR_VECTOR:
 			dcXorVector := &pb.DcXorVector{}
 			err := proto.Unmarshal(message.Data, dcXorVector)
 			if err != nil {
-				log.Errorf("dcXorVector Parse proto.Unmarshal error: %v", err)
+				log.Errorf("Can not unmarshal DcExpVector: %v", err)
 				break
 			}
+			dcXorVector.PeerId = peer.Id
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
 
 		case messages.C_TX_INPUTS:
 			txins := &pb.TxInputs{}
 			err := proto.Unmarshal(message.Data, txins)
 			if err != nil {
-				log.Errorf("TxInputs Parsproto.Unmarshal error: %v", err)
+				log.Errorf("Can not unmarshal TxInputs: %v", err)
 				break
 			}
 			txins.PeerId = peer.Id
@@ -283,30 +308,36 @@ func (peer *PeerInfo) ReadMessages() {
 			signTx := &pb.JoinTx{}
 			err := proto.Unmarshal(message.Data, signTx)
 			if err != nil {
-				log.Errorf("TxInputs Parse proto.Unmarshal error: %v", err)
+				log.Errorf("Can not unmarshal JoinTx: %v", err)
 				break
 			}
 			signTx.PeerId = peer.Id
 			peer.JoinSession.txSignedTxChan <- *signTx
 
 		case messages.C_TX_PUBLISH_RESULT:
+			pubResult := &pb.PublishResult{}
 			if peer.Id != peer.JoinSession.Publisher {
 				log.Debugf("peerId %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
 				continue
 			}
-			peer.JoinSession.txPublishResultChan <- message.Data
+			err := proto.Unmarshal(message.Data, pubResult)
+			if err != nil {
+				log.Errorf("Can not unmarshal PublishResult: %v", err)
+				break
+			}
+			pubResult.PeerId = peer.Id
+			peer.JoinSession.txPublishResultChan <- *pubResult
 		}
 
 	}
 }
 
+// GenId generates random uint32.
 func GenId() uint32 {
 	id, err := rand.Int(rand.Reader, big.NewInt(4294967295))
-
 	if err != nil {
 		log.Criticalf("can not gen id %v", err)
 		panic(err)
 	}
-
 	return uint32(id.Uint64())
 }

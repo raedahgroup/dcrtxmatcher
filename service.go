@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 
 	"google.golang.org/grpc/peer"
 
@@ -13,19 +15,20 @@ import (
 )
 
 type SplitTxMatcherService struct {
-	//ticketJoiner *matcher.JoinSession
-
 	ticketJoiner *matcher.JoinTicker
-	waitingQueue *matcher.WaitingQueue
+	joinQueue    *matcher.JoinQueue
 }
 
-func NewSplitTxMatcherService(ticketJoiner *matcher.JoinTicker, waitingQueue *matcher.WaitingQueue) *SplitTxMatcherService {
+// NewSplitTxMatcherService creates new server matcher engine.
+func NewSplitTxMatcherService(ticketJoiner *matcher.JoinTicker, joinQueue *matcher.JoinQueue) *SplitTxMatcherService {
 	return &SplitTxMatcherService{
 		ticketJoiner: ticketJoiner,
-		waitingQueue: waitingQueue,
+		joinQueue:    joinQueue,
 	}
 }
 
+// FindMatches sends join session matcher request to server
+// and received the session id of join session.
 func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindMatchesRequest) (*pb.FindMatchesResponse, error) {
 
 	var sess *matcher.SessionParticipant
@@ -33,11 +36,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 
 	sessID := svc.ticketJoiner.NewSessionID()
 
-	peer, ok := peer.FromContext(ctx)
-
-	if !ok {
-
-	}
+	peer, _ := peer.FromContext(ctx)
 
 	log.Infof("SessionID %v - %v connected", sessID, peer.Addr.String())
 
@@ -47,7 +46,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 		defer func() {
 			done <- true
 		}()
-		sess, err = svc.waitingQueue.AddParticipant(req.Amount, sessID)
+		sess, err = svc.joinQueue.AddParticipant(req.Amount, sessID)
 
 	}()
 
@@ -63,7 +62,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 			}
 			return res, nil
 		case <-ctx.Done():
-			svc.waitingQueue.RemoveWaitingID(sessID)
+			svc.joinQueue.RemoveWaitingID(sessID)
 			err = ctx.Err()
 			return nil, err
 		}
@@ -71,10 +70,13 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 
 }
 
+// SubmitSplitTx receives transaction from one participant
+// and merges with other's transaction.
+// Returns input, output index of each participant and the merged transaction.
 func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.SubmitInputTxReq) (*pb.SubmitInputTxRes, error) {
 
 	var splitTx *wire.MsgTx
-	//decode tx from dcrwallet client
+	// Decode tx from dcrwallet client
 	splitBuff := bytes.NewBuffer(req.GetSplitTx())
 	splitTx = wire.NewMsgTx()
 	splitTx.BtcDecode(splitBuff, 0)
@@ -89,8 +91,8 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
 	if joinSession == nil {
-		log.Debugf("joinSession is nil")
-		//return nil, errors.New("Error joinSession is nil")
+
+		return nil, errors.New(fmt.Sprintf("Can not find joinSession with id %d", req.JoinId))
 	}
 
 	go func() {
@@ -136,9 +138,9 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 
 }
 
-//each participant invidually send signed inputs.
-//when all inputs of all participants are received
-//full transaction is built
+// SubmitSignedTransaction sends signed inputs to server.
+// When all inputs of all participants are received,
+// full transaction is built.
 func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, req *pb.SignTransactionRequest) (*pb.SignTransactionResponse, error) {
 
 	var resp *pb.SignTransactionResponse
@@ -196,6 +198,8 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 	}
 }
 
+// PublishResult receives the published transaction data
+// from one participant and forward the transaction to others.
 func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.PublishResultRequest) (*pb.PublishResultResponse, error) {
 	var tx, publishedTx *wire.MsgTx
 	var err error
@@ -203,9 +207,6 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 
 	done := make(chan bool)
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
-	if joinSession == nil {
-		log.Debugf("joinSession is nil")
-	}
 
 	go func() {
 		defer func() {
@@ -244,10 +245,4 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 			return nil, ctx.Err()
 		}
 	}
-}
-
-func (svc *SplitTxMatcherService) Status(context.Context, *pb.StatusRequest) (*pb.StatusResponse, error) {
-	return &pb.StatusResponse{
-		TicketPrice: 666,
-	}, nil
 }

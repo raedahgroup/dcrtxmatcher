@@ -11,7 +11,6 @@
  * \param[in]  prime           Prime of the finite field (not checked for primality)
  * \param[in]  sums            Array of n power sums
  * \param[in]  n               Number of messages, must be at least 2 and not larger than prime
- *
  * \retval 0                   Success, the solution vector has been stored as hexadecimal strings in out_messages[].
  * \retval RET_INVALID         sums is not a proper array of power sums
  * \retval RET_INPUT_ERROR     Illegal input values.
