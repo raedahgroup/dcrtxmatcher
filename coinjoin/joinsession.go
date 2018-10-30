@@ -2,6 +2,7 @@ package coinjoin
 
 import (
 	"bytes"
+	"crypto/elliptic"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -15,6 +16,7 @@ import (
 	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/gogo/protobuf/proto"
 	"github.com/raedahgroup/dcrtxmatcher/flint"
+	"github.com/wsddn/go-ecdh"
 )
 
 func init() {
@@ -98,6 +100,7 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 
 	// Re-generate the session id and peer id
 	malicious.SessionId = GenId()
+	newPeers := make(map[uint32]*PeerInfo, 0)
 	log.Debug("Remaining peers in join session: ", joinSession.Peers)
 	if len(joinSession.Peers) > 0 {
 		for _, peer := range joinSession.Peers {
@@ -110,8 +113,12 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 			}
 			msg := messages.NewMessage(messages.S_MALICIOUS_PEERS, data).ToBytes()
 			peer.writeChan <- msg
+			newPeers[peer.Id] = peer
 		}
 	}
+	joinSession.Peers = newPeers
+	joinSession.JoinedTx = nil
+	joinSession.PeerInfos = []*pb.PeerInfo{}
 	joinSession.Id = malicious.SessionId
 	joinSession.mu.Unlock()
 	log.Debug("Remaining peers in join session after updated: ", joinSession.Peers)
@@ -123,6 +130,10 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 func (joinSession *JoinSession) run() {
 	var allPkScripts [][]byte
 	missedPeers := make([]uint32, 0)
+
+	// Stop round timer
+	defer joinSession.roundTimeout.Stop()
+
 	// We use label to break for loop when join session completed.
 LOOP:
 	for {
@@ -130,8 +141,8 @@ LOOP:
 		case <-joinSession.roundTimeout.C:
 			log.Info("Timeout.")
 			// We use timer to control whether peers send data in time.
-			// With one process of join session, server has max time
-			// for client process is 2 minutes (setting in config file).
+			// With one process of join session, server waits maximum time
+			// for client process is 30 seconds (setting in config file).
 			// After that time, client still not send data,
 			// server will consider the client is malicious and terminate.
 			for _, peer := range joinSession.Peers {
@@ -187,16 +198,25 @@ LOOP:
 			if joinSession.State != StateKeyExchange {
 				// Peer sent data invalid state
 				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateKeyExchange", joinSession.State, keyExchange.PeerId)
+				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateKeyExchange",
+					joinSession.State, keyExchange.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{keyExchange.PeerId})
 				continue
 			}
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[keyExchange.PeerId]
-
 			if peer == nil {
 				log.Error("Can not find join session with peer id %d", keyExchange.PeerId)
 				peer.Conn.Close()
+				continue
+			}
+
+			// Validate public key and ignore peer if public key is not valid.
+			ecp256 := ecdh.NewEllipticECDH(elliptic.P256())
+			_, valid := ecp256.Unmarshal(keyExchange.Pk)
+			if !valid {
+				// Public key is invalid
+				joinSession.removePeer(keyExchange.PeerId)
 				continue
 			}
 
@@ -215,7 +235,7 @@ LOOP:
 
 				data, err := proto.Marshal(keyex)
 				if err != nil {
-					log.Errorf("proto.Marshal keyexchange error: %v", err)
+					log.Errorf("Can not marshal keyexchange: %v", err)
 					break
 				}
 
@@ -285,23 +305,20 @@ LOOP:
 				log.Infof("Number roots: %d", len(roots))
 				log.Infof("Roots: %v", roots)
 
-				// Will check whether the polynomial can solve or not
+				// Will check whether the polynomial could be solved or not
 				if ret != 0 {
-					// Some peers may sent incorrect dc-net expopential vector
-					// Need to check and remove malcious peers
+					// Some peers may sent incorrect dc-net expopential vector.
+					// Need to check and remove malcious peers.
 				}
 
 				// Send to all peers the roots resolved
 				allMsgHash := make([]byte, 0)
 				for _, root := range roots {
 					str := fmt.Sprintf("%032v", root)
-					bytes, err := hex.DecodeString(str)
-					if err != nil {
-						log.Errorf("error DecodeString %v", err)
-					}
+					bytes, _ := hex.DecodeString(str)
 
-					// Remove zero message
-					if len(bytes) == 16 {
+					// Only get correct message size
+					if len(bytes) == messages.PkScriptHashSize {
 						allMsgHash = append(allMsgHash, bytes...)
 					}
 				}
@@ -311,7 +328,7 @@ LOOP:
 				msgdata.Msgs = allMsgHash
 				data, err := proto.Marshal(msgdata)
 				if err != nil {
-					log.Errorf("proto.Marshal keyexchange error: %v", err)
+					log.Errorf("Can not marshal all messages data: %v", err)
 					break
 				}
 
