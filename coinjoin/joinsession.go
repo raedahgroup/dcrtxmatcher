@@ -177,14 +177,27 @@ LOOP:
 						log.Infof("Peer id %v did not send signed transaction data in time", peer.Id)
 					}
 				case StateTxPublish:
+					joinSession.mu.Lock()
 					if joinSession.Publisher == peer.Id {
-						missedPeers = append(missedPeers, peer.Id)
-						log.Infof("Peer id %v did not send published transaction data in time", peer.Id)
+						log.Infof("Peer id %v did not send the published transaction data in time", peer.Id)
+						joinSession.removePeer(peer.Id)
+
+						if len(joinSession.Peers) <= 1 {
+							// Protocol terminates fail
+
+						}
+						// Select other peer to publish transaction
+						pubId := joinSession.randomPublisher()
+						joinSession.Publisher = pubId
+						joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
+						peer.writeChan <- joinTxMsg.ToBytes()
+						joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut/3))
 					}
+					joinSession.mu.Unlock()
 				}
 			}
 
-			// Inform to remaining peers in join session
+			// Inform to remaining peers in join session.
 			if len(missedPeers) > 0 {
 				joinSession.pushMaliciousInfo(missedPeers)
 
@@ -193,12 +206,12 @@ LOOP:
 			}
 
 		case keyExchange := <-joinSession.keyExchangeChan:
-			// In every round, server needs to check whether
+			// In every round, server needs to check if
 			// client has sent data that consistent with join session state.
 			if joinSession.State != StateKeyExchange {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateKeyExchange",
+				// Peer sent data invalid state.
+				// Inform to remaining peers in join session.
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateKeyExchange",
 					joinSession.State, keyExchange.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{keyExchange.PeerId})
 				continue
@@ -226,7 +239,7 @@ LOOP:
 
 			log.Debug("Received key exchange request from peer", peer.Id)
 
-			// Broadcast to all peers when there are enough public keys,
+			// Broadcast to all peers when there are enough public keys.
 			if len(joinSession.Peers) == len(joinSession.PeerInfos) {
 				log.Debug("All peers have sent public key, broadcast all public keys to peers")
 				keyex := &pb.KeyExchangeRes{
@@ -250,17 +263,18 @@ LOOP:
 
 		case data := <-joinSession.dcExpVectorChan:
 			if joinSession.State != StateDcExponential {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateDcExponential", joinSession.State, data.PeerId)
+				// Peer sent data invalid state.
+				// Inform to remaining peers in join session.
+				log.Infof("Current join session state is %d. Peer id %d has sent invalid state: StateDcExponential",
+					joinSession.getStateString(), data.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
 				continue
 			}
 			joinSession.mu.Lock()
 			peerInfo := joinSession.Peers[data.PeerId]
 			if peerInfo == nil {
-				log.Debug("dcExpVector does not include peerid", data.PeerId)
-				break
+				log.Debug("joinSession does not include peerid", data.PeerId)
+				continue
 			}
 			vector := make([]field.Field, 0)
 			for i := 0; i < int(data.Len); i++ {
@@ -280,9 +294,9 @@ LOOP:
 				}
 			}
 
-			// If all peers sent dc-net exponential vector, we need combine (sum) with the same index of each peer
+			// If all peers sent dc-net exponential vector, we need combine (sum) with the same index of each peer.
 			// The sum of all peers will remove padding bytes that each peer has added.
-			// And this time, we will having the real power sum of all peers
+			// And this time, we will having the real power sum of all peers.
 			if allSubmit {
 				log.Debug("All peers sent dc-net exponential vector. Combine dc-net exponential from all peers to remove padding")
 				polyDegree := len(vector)
@@ -343,9 +357,10 @@ LOOP:
 
 		case data := <-joinSession.dcXorVectorChan:
 			if joinSession.State != StateDcXor {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateDcXor", joinSession.State, data.PeerId)
+				// Peer sent data invalid state.
+				// Inform to remaining peers in join session.
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateDcXor",
+					joinSession.getStateString(), data.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
 				continue
 			}
@@ -356,12 +371,13 @@ LOOP:
 				dcXor = append(dcXor, msg)
 			}
 
-			peerInfo := joinSession.Peers[data.PeerId]
-			if peerInfo == nil {
-				log.Debug("dcExpVector not include peerid")
+			peer := joinSession.Peers[data.PeerId]
+			if peer == nil {
+				log.Debug("joinSession %d does not include peer %d", joinSession.Id, data.PeerId)
+				continue
 			}
-			peerInfo.DcXorVector = dcXor
-			log.Debug("Received dc-net xor vector from peer", peerInfo.Id)
+			peer.DcXorVector = dcXor
+			log.Debug("Received dc-net xor vector from peer", peer.Id)
 
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
@@ -372,16 +388,16 @@ LOOP:
 			}
 
 			// If all peers have sent dc-net xor vector, will solve xor vector to get all peers's pkscripts
-			allPkScripts = make([][]byte, len(peerInfo.DcXorVector))
+			allPkScripts = make([][]byte, len(peer.DcXorVector))
 			var err error = nil
 			if allSubmit {
 				log.Debug("Combine xor vector to remove padding xor and get all pkscripts hash")
-				// Base on equation: (Pkscript ^ P ^ P1 ^ P2...) ^ (P ^ P1 ^ P2...) = Pkscript
-				// Each peer will send Pkscript ^ P ^ P1 ^ P2... bytes to server
-				// Server combine (xor) all dc-net xor vectors and will have Pkscript ^ P ^ P1 ^ P2... ^ (P ^ P1 ^ P2...) = Pkscript
-				// But server could not know which Pkscript belongs to any peer because only peer know it's slot index
-				// And each peer only knows it's Pkscript itself
-				for i := 0; i < len(peerInfo.DcXorVector); i++ {
+				// Base on equation: (pkscript ^ P ^ P1 ^ P2...) ^ (P ^ P1 ^ P2...) = pkscript.
+				// Each peer will send pkscript ^ P ^ P1 ^ P2... bytes to server.
+				// Server combine (xor) all dc-net xor vectors and will have pkscript ^ P ^ P1 ^ P2... ^ (P ^ P1 ^ P2...) = pkscript.
+				// But server could not know which pkscript belongs to any peer because only peer know it's slot index.
+				// And each peer only knows it's pkscript itself.
+				for i := 0; i < len(peer.DcXorVector); i++ {
 					for _, peer := range joinSession.Peers {
 						allPkScripts[i], err = util.XorBytes(allPkScripts[i], peer.DcXorVector[i])
 						if err != nil {
@@ -395,7 +411,7 @@ LOOP:
 					log.Debugf("Pkscript %x", msg)
 				}
 
-				// Signal to all peers that server has got all pkscripts
+				// Signal to all peers that server has got all pkscripts.
 				// Peers will process next step
 				dcXorRet := &pb.DcXorVectorResult{}
 				dcXorData, err := proto.Marshal(dcXorRet)
@@ -416,13 +432,18 @@ LOOP:
 			if joinSession.State != StateTxInput {
 				// Peer sent data invalid state
 				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateTxInput", joinSession.State, txins.PeerId)
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateTxInput",
+					joinSession.getStateString(), txins.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{txins.PeerId})
 				continue
 			}
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[txins.PeerId]
-			// Server will use the ticket price that sent by each peer to construct the join transaction
+			if peer == nil {
+				log.Debug("joinSession %d does not include peer %d", joinSession.Id, txins.PeerId)
+				continue
+			}
+			// Server will use the ticket price that sent by each peer to construct the join transaction.
 			peer.TicketPrice = txins.TicketPrice
 
 			var tx wire.MsgTx
@@ -443,9 +464,9 @@ LOOP:
 				}
 			}
 
-			// With pkscripts solved from dc-net xor vector, we will build the transaction
-			// Each pkscript will be one txout with amout is ticket price and fee
-			// Combine with transaction input from peer, we can build unsigned transaction
+			// With pkscripts solved from dc-net xor vector, we will build the transaction.
+			// Each pkscript will be one txout with amout is ticket price + fee.
+			// Combine with transaction input from peer, we can build unsigned transaction.
 			var joinedtx *wire.MsgTx
 			if allSubmit {
 				log.Debug("All peers sent txin, will create join tx for signing")
@@ -498,7 +519,8 @@ LOOP:
 			if joinSession.State != StateTxSign {
 				// Peer sent data invalid state
 				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateTxSign", joinSession.State, signedTx.PeerId)
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateTxSign",
+					joinSession.getStateString(), signedTx.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{signedTx.PeerId})
 				continue
 			}
@@ -507,6 +529,10 @@ LOOP:
 			// and send to server
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[signedTx.PeerId]
+			if peer == nil {
+				log.Debug("joinSession %d does not include peer %d", joinSession.Id, signedTx.PeerId)
+				continue
+			}
 
 			var tx wire.MsgTx
 			reader := bytes.NewReader(signedTx.Tx)
@@ -520,7 +546,7 @@ LOOP:
 			peer.SignedTx = &tx
 			log.Debug("Received signed tx from peer", peer.Id)
 
-			// Join signed transaction from each peer to one transaction
+			// Join signed transaction from each peer to one transaction.
 			if joinSession.JoinedTx == nil {
 				joinSession.JoinedTx = tx.Copy()
 			} else {
@@ -537,7 +563,7 @@ LOOP:
 				}
 			}
 			if allSubmit {
-				// Send the joined transaction to all peer in join session
+				// Send the joined transaction to all peer in join session.
 				// Random select peer to publish transaction.
 				// TODO: publish transaction from server
 				log.Info("Merged signed tx from all peers")
@@ -569,16 +595,17 @@ LOOP:
 					}
 					n++
 				}
-				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
+				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut/3))
 				joinSession.State = StateTxPublish
 			}
 			joinSession.mu.Unlock()
 
 		case pubResult := <-joinSession.txPublishResultChan:
 			if joinSession.State != StateTxPublish {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %d. Peer id %v has sent invalid state: StateTxPublish", joinSession.State, pubResult.PeerId)
+				// Peer sent data invalid state.
+				// Inform to remaining peers in join session.
+				log.Infof("Current join session state is %s. Peer id %v has sent invalid state: StateTxPublish",
+					joinSession.getStateString(), pubResult.PeerId)
 				joinSession.pushMaliciousInfo([]uint32{pubResult.PeerId})
 				continue
 			}
@@ -597,4 +624,40 @@ LOOP:
 
 	log.Infof("Session %d terminates sucessfully", joinSession.Id)
 
+}
+
+// randomPublisher selects random peer to publish transaction
+func (joinSession *JoinSession) randomPublisher() uint32 {
+	i := 0
+	var publisher uint32
+	randIndex := rand.Intn(len(joinSession.Peers))
+	for _, peer := range joinSession.Peers {
+		if i == randIndex {
+			publisher = peer.Id
+			break
+		}
+		i++
+	}
+	return publisher
+}
+
+// getStateString converts join session state value to string.
+func (joinSession *JoinSession) getStateString() string {
+	state := ""
+
+	switch joinSession.State {
+	case 1:
+		state = "StateKeyExchange"
+	case 2:
+		state = "StateDcExponential"
+	case 3:
+		state = "StateDcXor"
+	case 4:
+		state = "StateTxInput"
+	case 5:
+		state = "StateTxSign"
+	case 6:
+		state = "StateTxPublish"
+	}
+	return state
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 
 	"math/big"
+	mrand "math/rand"
 	"sync"
 	"time"
 
@@ -72,6 +73,10 @@ type (
 		RoundTimeOut    int
 	}
 )
+
+func init() {
+	mrand.Seed(time.Now().UnixNano())
+}
 
 // ResetData sets new id and session id for peer.
 // Also reset other data to prepare for new session.
@@ -217,10 +222,42 @@ func (peer *PeerInfo) WriteMessages() {
 			if err != nil {
 				log.Errorf("Write messsage to socket error: %v", err)
 				if peer.JoinSession != nil {
-					// Remove from joinsesion
-					delete(peer.JoinSession.Peers, peer.Id)
-					log.Infof("Peer %v disconnected", peer.Id)
-					// TODO: Consider malicious peer, inform to other peers.
+
+					log.Infof("Peer %v disconnected in session state %s", peer.Id, peer.JoinSession.getStateString())
+					peer.JoinSession.mu.Lock()
+
+					switch peer.JoinSession.State {
+					case StateKeyExchange:
+						// Just remove, ignore and continue.
+						peer.JoinSession.removePeer(peer.Id)
+					case StateDcExponential:
+					case StateDcXor:
+					case StateTxInput:
+					case StateTxSign:
+						// Consider malicious peer, remove and inform to others
+						peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+					case StateTxPublish:
+						if peer.JoinSession.Publisher == peer.Id {
+							peer.JoinSession.removePeer(peer.Id)
+							if len(peer.JoinSession.Peers) <= 1 {
+								// Terminates fail
+							}
+							// Select other peer to publish transaction
+							joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
+							i := 0
+							randIndex := mrand.Intn(len(peer.JoinSession.Peers))
+							for _, peerInfo := range peer.JoinSession.Peers {
+								if i == randIndex {
+									peer.JoinSession.Publisher = peerInfo.Id
+									peerInfo.writeChan <- joinTxMsg.ToBytes()
+									break
+								}
+								i++
+							}
+						}
+					}
+					peer.JoinSession.mu.Unlock()
+
 				} else {
 					peer.JoinQueue.RemovePeer(peer)
 					log.Infof("Peer %v disconnected", peer.Id)
@@ -252,7 +289,7 @@ func (peer *PeerInfo) ReadMessages() {
 			break
 		}
 		if cmd == 1 || peer.JoinSession == nil {
-			log.Debug("continue with cmd == 1 and peer.JoinSession is nil")
+			log.Debug("continue with cmd == 1 and joinSession is nil")
 			continue
 		}
 
@@ -317,7 +354,7 @@ func (peer *PeerInfo) ReadMessages() {
 		case messages.C_TX_PUBLISH_RESULT:
 			pubResult := &pb.PublishResult{}
 			if peer.Id != peer.JoinSession.Publisher {
-				log.Debugf("peerId %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
+				log.Debugf("peer %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
 				continue
 			}
 			err := proto.Unmarshal(message.Data, pubResult)
