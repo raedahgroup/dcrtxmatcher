@@ -137,7 +137,6 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 // When all inputs of all participants are received,
 // full transaction is built.
 func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, req *pb.SignTransactionRequest) (*pb.SignTransactionResponse, error) {
-
 	var resp *pb.SignTransactionResponse
 	var errn error
 
