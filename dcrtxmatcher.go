@@ -27,12 +27,11 @@ func main() {
 }
 
 // run executes dcrtxmatcher server. Base on setting on config file
-// server does coinshuffle++ if blind server option is enable, if not does normal coin join method.
+// server uses coinshuffle++ if blind server option is enable, if not using normal coin join method.
 func run(ctx context.Context) error {
-
 	config, _, err := loadConfig(ctx)
 	if err != nil {
-		log.Errorf("loadConfig error %v", err)
+		log.Errorf("Can not load the config data: %v", err)
 		return err
 	}
 
@@ -40,6 +39,10 @@ func run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	// Within coinshuffle++, the dicemix protocol is used for the participants to exchange information.
+	// Dicemix uses the flint library to solve polynomial to get the roots and the peer's output address.
+	// The flint library is a required dependency and is the method that is suggested by the
+	// authors of the coinshuffle++ paper.
 	if config.BlindServer {
 		dcmixlog.Infof("MinParticipants %d", config.MinParticipants)
 		dicemixCfg := &coinjoin.Config{
@@ -52,7 +55,6 @@ func run(ctx context.Context) error {
 		joinQueue := coinjoin.NewJoinQueue()
 
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-
 			upgrader := websocket.Upgrader{
 				ReadBufferSize:  1024 * 1024,
 				WriteBufferSize: 1024 * 1024,
@@ -63,12 +65,11 @@ func run(ctx context.Context) error {
 				return
 			}
 
-			// Add websocket connection to dicemix for management
+			// Add websocket connection to peer data.
 			peer := coinjoin.NewPeer(conn)
 			peer.IPAddr = r.RemoteAddr
 
 			joinQueue.NewPeerChan <- peer
-
 		})
 
 		diceMix := coinjoin.NewDiceMix(dicemixCfg)
@@ -79,14 +80,19 @@ func run(ctx context.Context) error {
 
 		go http.ListenAndServe(intf, nil)
 
-	} else {
+	}
+
+	// With normal coin join method, server known output address of all participants.
+	// After received transaction input and output from participants,
+	// Server swaps randomly the transaction input, output index of all participants.
+	// The joined transaction created from this then sent back to each participants to sign.
+	if !config.BlindServer {
 		mcfg := &matcher.Config{
 			MinParticipants: config.MinParticipants,
 			RandomIndex:     config.RandomIndex,
 			JoinTicker:      config.JoinTicker,
 			WaitingTimer:    config.WaitingTimer,
 		}
-		//set matcher config
 		ticketJoiner := matcher.NewTicketJoiner(mcfg)
 		joinQueue := matcher.NewJoinQueue()
 
@@ -128,7 +134,8 @@ func run(ctx context.Context) error {
 			}()
 		}
 	}
-
+	// Wait until shutdown is signaled before returning and running deferred
+	// shutdown tasks.
 	<-ctx.Done()
 
 	return ctx.Err()

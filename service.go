@@ -27,27 +27,25 @@ func NewSplitTxMatcherService(ticketJoiner *matcher.JoinTicker, joinQueue *match
 	}
 }
 
-// FindMatches sends join session matcher request to server
-// and received the session id of join session.
+// FindMatches sends join session matcher request to server,
+// waits for enough participants join and then returns the session id of join session.
 func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindMatchesRequest) (*pb.FindMatchesResponse, error) {
-
 	var sess *matcher.SessionParticipant
 	var err error
-
 	sessID := svc.ticketJoiner.NewSessionID()
 
-	peer, _ := peer.FromContext(ctx)
-
-	log.Infof("SessionID %v - %v connected", sessID, peer.Addr.String())
+	// Get meta data of peer from context.
+	// We need only the ip address.
+	clientInfo, _ := peer.FromContext(ctx)
+	log.Infof("SessionID %v - %v connected", sessID, clientInfo.Addr.String())
 
 	done := make(chan bool)
 
+	// AddParticipant is long running function.
+	// So we use goroutine to not blocking cancel signal on context.
 	go func() {
-		defer func() {
-			done <- true
-		}()
 		sess, err = svc.joinQueue.AddParticipant(req.Amount, sessID)
-
+		done <- true
 	}()
 
 	for {
@@ -64,6 +62,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 		case <-ctx.Done():
 			svc.joinQueue.RemoveWaitingID(sessID)
 			err = ctx.Err()
+			done <- true
 			return nil, err
 		}
 	}
@@ -74,15 +73,13 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 // and merges with other's transaction.
 // Returns input, output index of each participant and the merged transaction.
 func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.SubmitInputTxReq) (*pb.SubmitInputTxRes, error) {
-
 	var splitTx *wire.MsgTx
-	// Decode tx from dcrwallet client
+	// Decode transaction from dcrwallet client
 	splitBuff := bytes.NewBuffer(req.GetSplitTx())
 	splitTx = wire.NewMsgTx()
 	splitTx.BtcDecode(splitBuff, 0)
 
 	var resp *pb.SubmitInputTxRes
-
 	done := make(chan bool)
 
 	var ticket *wire.MsgTx
@@ -91,18 +88,15 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
 	if joinSession == nil {
-
 		return nil, errors.New(fmt.Sprintf("Can not find joinSession with id %d", req.JoinId))
 	}
-
+	// SubmitSplitTx is long running function.
+	// So we use goroutine to not blocking cancel signal on context.
 	go func() {
-		defer func() {
-			done <- true
-		}()
 		ticket, inputIds, outputIds, err = joinSession.SubmitSplitTx(matcher.SessionID(req.SessionId), splitTx,
 			int(0), nil)
 		if err != nil {
-			log.Debugf("matcher.PublishTransaction error %v", err)
+			log.Debugf("Can not submit join transaction: %v", err)
 			resp = nil
 			return
 		}
@@ -110,7 +104,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 		buff.Grow(ticket.SerializeSize())
 		err = ticket.BtcEncode(buff, 0)
 		if err != nil {
-			log.Errorf("matcher.BtcEncode error %v ", err)
+			log.Errorf("Can not encode buffer transaction: %v ", err)
 			resp = nil
 			return
 		}
@@ -129,9 +123,10 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 		case <-done:
 			return resp, err
 		case <-ctx.Done():
-			//remove this sessionID
+			// Remove participant with the session id.
 			joinSession.RemoveSessionID(matcher.SessionID(req.SessionId))
 			err = ctx.Err()
+			done <- true
 			return nil, err
 		}
 	}
@@ -147,25 +142,21 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 	var errn error
 
 	done := make(chan bool)
-
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
 	if joinSession == nil {
-		log.Debugf("joinSession is nil")
-		//return nil, errors.New("Error joinSession is nil")
+		return nil, errors.New(fmt.Sprintf("Can not find join session with id %d", req.JoinId))
 	}
-
+	// SubmitSignedTx is long running function.
+	// So we use goroutine to not blocking cancel signal on context.
 	go func() {
-		defer func() {
-			done <- true
-		}()
-		//decode tx from dcrwallet client
+		// Decode transaction from dcrwallet client
 		splitBuff := bytes.NewBuffer(req.GetSplitTx())
 		tx := wire.NewMsgTx()
 		tx.BtcDecode(splitBuff, 0)
 
 		ticket, publisher, err := joinSession.SubmitSignedTx(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
-			log.Errorf("matcher.SubmitSignedTransaction error %v ", err)
+			log.Errorf("Can not submit signed transaction: %v ", err)
 			errn = err
 			return
 		}
@@ -182,7 +173,7 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 			TicketTx:  buff.Bytes(),
 			Publisher: publisher,
 		}
-
+		done <- true
 	}()
 
 	for {
@@ -191,8 +182,9 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 			return resp, errn
 
 		case <-ctx.Done():
-			//remove this sessionID
+			// Remove participant with the session id.
 			joinSession.RemoveSessionID(matcher.SessionID(req.SessionId))
+			done <- true
 			return nil, ctx.Err()
 		}
 	}
@@ -207,11 +199,11 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 
 	done := make(chan bool)
 	joinSession := svc.ticketJoiner.GetJoinSession(req.JoinId)
+	if joinSession == nil {
+		return nil, errors.New(fmt.Sprintf("Can not find join session with id %d", req.JoinId))
+	}
 
 	go func() {
-		defer func() {
-			done <- true
-		}()
 		if req.JoinedTx != nil {
 			txResult := bytes.NewBuffer(req.JoinedTx)
 			tx = wire.NewMsgTx()
@@ -220,7 +212,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 
 		publishedTx, err = joinSession.PublishResult(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
-			log.Debugf("matcher.PublishResult error %v", err)
+			log.Debugf("Can not execute publish result: %v", err)
 			return
 		}
 
@@ -233,6 +225,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 		resp = &pb.PublishResultResponse{
 			TicketTx: buff.Bytes(),
 		}
+		done <- true
 	}()
 
 	for {
@@ -242,6 +235,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 
 		case <-ctx.Done():
 			joinSession.RemoveSessionID(matcher.SessionID(req.SessionId))
+			done <- true
 			return nil, ctx.Err()
 		}
 	}

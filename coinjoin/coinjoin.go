@@ -234,7 +234,7 @@ func (peer *PeerInfo) WriteMessages() {
 					case StateDcXor:
 					case StateTxInput:
 					case StateTxSign:
-						// Consider malicious peer, remove and inform to others
+						// Consider malicious peer, remove and inform to others.
 						peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
 					case StateTxPublish:
 						if peer.JoinSession.Publisher == peer.Id {
@@ -242,7 +242,7 @@ func (peer *PeerInfo) WriteMessages() {
 							if len(peer.JoinSession.Peers) <= 1 {
 								// Terminates fail
 							}
-							// Select other peer to publish transaction
+							// Select other peer to publish transaction.
 							joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
 							i := 0
 							randIndex := mrand.Intn(len(peer.JoinSession.Peers))
@@ -278,7 +278,7 @@ func (peer *PeerInfo) ReadMessages() {
 		if err != nil {
 			log.Errorf("Can not read data from websockett: %v", err)
 			if peer.JoinSession != nil {
-				// Peer may disconnected, remove from join session
+				// Peer may disconnected, remove from join session.
 				// TODO: check status of joinsession and have proper process
 				delete(peer.JoinSession.Peers, peer.Id)
 				log.Infof("Peer %v disconnected", peer.Id)
@@ -289,7 +289,7 @@ func (peer *PeerInfo) ReadMessages() {
 			break
 		}
 		if cmd == 1 || peer.JoinSession == nil {
-			log.Debug("continue with cmd == 1 and joinSession is nil")
+			log.Debug("continue with cmd value is 1 or joinSession is nil")
 			continue
 		}
 
