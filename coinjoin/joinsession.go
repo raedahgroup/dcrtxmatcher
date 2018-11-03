@@ -30,6 +30,7 @@ const (
 	StateTxInput       = 4
 	StateTxSign        = 5
 	StateTxPublish     = 6
+	StateCompleted     = 7
 )
 
 type (
@@ -85,8 +86,9 @@ func (joinSession *JoinSession) removePeer(peerId uint32) {
 // Also generates new session id, new peer id for each remaining peer
 // to start the join session from beginning.
 func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
+	log.Debug("Accquire joinSession.mu.Lock", len(missedPeers))
 	joinSession.mu.Lock()
-
+	log.Debug("Len of misspeers 1", len(missedPeers))
 	malicious := &pb.MaliciousPeers{}
 	for _, Id := range missedPeers {
 		joinSession.removePeer(Id)
@@ -107,12 +109,10 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 			malicious.PeerId = GenId()
 			// Update new id generated.
 			peer.ResetData(malicious.PeerId, malicious.SessionId)
-			data, err := proto.Marshal(malicious)
-			if err != nil {
-				log.Errorf("Can not marshal malicious")
-			}
-			msg := messages.NewMessage(messages.S_MALICIOUS_PEERS, data).ToBytes()
-			peer.writeChan <- msg
+			data, _ := proto.Marshal(malicious)
+			peer.TmpData = data
+			//			msg := messages.NewMessage(messages.S_MALICIOUS_PEERS, data).ToBytes()
+			//			peer.writeChan <- msg
 			newPeers[peer.Id] = peer
 		}
 	}
@@ -120,6 +120,12 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 	joinSession.JoinedTx = nil
 	joinSession.PeerInfos = []*pb.PeerInfo{}
 	joinSession.Id = malicious.SessionId
+
+	// After all change updated, inform clients for malicious information.
+	for _, peer := range joinSession.Peers {
+		msg := messages.NewMessage(messages.S_MALICIOUS_PEERS, peer.TmpData).ToBytes()
+		peer.writeChan <- msg
+	}
 	joinSession.mu.Unlock()
 	log.Debug("Remaining peers in join session after updated: ", joinSession.Peers)
 }
@@ -200,27 +206,14 @@ LOOP:
 			// Inform to remaining peers in join session.
 			if len(missedPeers) > 0 {
 				joinSession.pushMaliciousInfo(missedPeers)
-
 				// Reset join session state.
 				joinSession.State = StateKeyExchange
 			}
-
 		case keyExchange := <-joinSession.keyExchangeChan:
-			// In every round, server needs to check if
-			// client has sent data that consistent with join session state.
-			if joinSession.State != StateKeyExchange {
-				// Peer sent data invalid state.
-				// Inform to remaining peers in join session.
-				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateKeyExchange",
-					joinSession.State, keyExchange.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{keyExchange.PeerId})
-				continue
-			}
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[keyExchange.PeerId]
 			if peer == nil {
-				log.Error("Can not find join session with peer id %d", keyExchange.PeerId)
-				peer.Conn.Close()
+				log.Errorf("Can not find join session with peer id %d", keyExchange.PeerId)
 				continue
 			}
 
@@ -260,16 +253,7 @@ LOOP:
 				joinSession.State = StateDcExponential
 			}
 			joinSession.mu.Unlock()
-
 		case data := <-joinSession.dcExpVectorChan:
-			if joinSession.State != StateDcExponential {
-				// Peer sent data invalid state.
-				// Inform to remaining peers in join session.
-				log.Infof("Current join session state is %d. Peer id %d has sent invalid state: StateDcExponential",
-					joinSession.getStateString(), data.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
-				continue
-			}
 			joinSession.mu.Lock()
 			peerInfo := joinSession.Peers[data.PeerId]
 			if peerInfo == nil {
@@ -354,16 +338,9 @@ LOOP:
 				joinSession.State = StateDcXor
 			}
 			joinSession.mu.Unlock()
-
+			log.Debug("Sleep 15 sec for stop one client")
+			time.Sleep(time.Duration(10 * time.Second))
 		case data := <-joinSession.dcXorVectorChan:
-			if joinSession.State != StateDcXor {
-				// Peer sent data invalid state.
-				// Inform to remaining peers in join session.
-				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateDcXor",
-					joinSession.getStateString(), data.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
-				continue
-			}
 			joinSession.mu.Lock()
 			dcXor := make([][]byte, 0)
 			for i := 0; i < int(data.Len); i++ {
@@ -427,16 +404,7 @@ LOOP:
 				joinSession.State = StateTxInput
 			}
 			joinSession.mu.Unlock()
-
 		case txins := <-joinSession.txInputsChan:
-			if joinSession.State != StateTxInput {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateTxInput",
-					joinSession.getStateString(), txins.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{txins.PeerId})
-				continue
-			}
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[txins.PeerId]
 			if peer == nil {
@@ -516,15 +484,6 @@ LOOP:
 			}
 			joinSession.mu.Unlock()
 		case signedTx := <-joinSession.txSignedTxChan:
-			if joinSession.State != StateTxSign {
-				// Peer sent data invalid state
-				// Inform to remaining peers in join session
-				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateTxSign",
-					joinSession.getStateString(), signedTx.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{signedTx.PeerId})
-				continue
-			}
-
 			// Each peer after received unsigned join transaction then sign their own transaction input
 			// and send to server
 			joinSession.mu.Lock()
@@ -599,31 +558,21 @@ LOOP:
 				joinSession.State = StateTxPublish
 			}
 			joinSession.mu.Unlock()
-
 		case pubResult := <-joinSession.txPublishResultChan:
-			if joinSession.State != StateTxPublish {
-				// Peer sent data invalid state.
-				// Inform to remaining peers in join session.
-				log.Infof("Current join session state is %s. Peer id %v has sent invalid state: StateTxPublish",
-					joinSession.getStateString(), pubResult.PeerId)
-				joinSession.pushMaliciousInfo([]uint32{pubResult.PeerId})
-				continue
-			}
 			// Random peer has published transaction, send back to other peers for purchase ticket
 			joinSession.mu.Lock()
 			msg := messages.NewMessage(messages.S_TX_PUBLISH_RESULT, pubResult.Tx)
 			for _, peer := range joinSession.Peers {
 				peer.writeChan <- msg.ToBytes()
 			}
+			joinSession.State = StateCompleted
 			joinSession.mu.Unlock()
 			log.Info("Broadcast published tx to all peers")
 			// Need to break for loop to terminate the join session
 			break LOOP
 		}
 	}
-
 	log.Infof("Session %d terminates sucessfully", joinSession.Id)
-
 }
 
 // randomPublisher selects random peer to publish transaction

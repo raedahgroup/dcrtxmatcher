@@ -82,7 +82,7 @@ type (
 	}
 )
 
-// CheckInputsSigned returns true if all participant already sent their signed input/output
+// CheckInputsSigned returns true if all participants already sent their signed transaction input, output.
 func (sess *Session) CheckInputsSigned() bool {
 	for _, p := range sess.Participants {
 		if p.SignedTx == nil {
@@ -92,7 +92,7 @@ func (sess *Session) CheckInputsSigned() bool {
 	return true
 }
 
-// CheckAllSentPublished returns true if all participant already sent their publish result
+// CheckAllSentPublished returns true if all participants already sent their publish result.
 func (sess *Session) CheckAllSentPublished() bool {
 	for _, p := range sess.Participants {
 		if !p.SentPublished {
@@ -102,7 +102,7 @@ func (sess *Session) CheckAllSentPublished() bool {
 	return true
 }
 
-// CheckTxSubmitted returns true if all participant already sent their invidual input/output tx
+// CheckTxSubmitted returns true if all participants already sent their transaction input, output.
 func (sess *Session) CheckTxSubmitted() bool {
 	for _, p := range sess.Participants {
 		if p.SplitTx == nil {
@@ -131,17 +131,17 @@ func NewJoinSession(cfg *Config) *JoinSession {
 	return m
 }
 
-// Run listens for all matcher messages and runs the matching engine.
+// Run listens for all request messages from clients and runs the matching engine.
 func (matcher *JoinSession) Run() error {
 
 	for {
 
 		select {
-		// We use one timer to control whether participants send data in time
-		// With one progress, server has max time for client process is 2minutes (setting in config file)
+		// We use one timer to control participants sending data in time.
+		// With one progress, server has max time for client process is 30 seconds (setting in config file)
 		// After that time, client still not send data, server will consider client is malicious and remove
 		case <-matcher.clientTimeout.C:
-			// Check participants who missing sending data and remove
+			// Check participants who not sending data and remove.
 			missedP := make([]SessionID, 0)
 			if matcher.SessionData != nil {
 				switch matcher.progress {
@@ -180,7 +180,8 @@ func (matcher *JoinSession) Run() error {
 			}
 
 		case req := <-matcher.submitSplitTxReq:
-			// In every round, server needs to check whether client has sent data that consistent with join session progress
+			// In every round, server needs to check whether client has sent
+			// data that is inconsistent with join session progress.
 			if matcher.progress != StateRawTx {
 				log.Errorf("Client sent invalid progress command %v. Current progress is %d", "StateRawTx", matcher.progress)
 				req.resp <- submitSplitTxRes{
@@ -227,13 +228,13 @@ func (matcher *JoinSession) Run() error {
 	}
 }
 
-// NewSessionID generates new session id in string.
+// NewSessionID generates new string session id.
 func (matcher *JoinSession) NewSessionID() SessionID {
 	id := xid.New()
 	return SessionID(id.String())
 }
 
-// mergeSignedInput merges signed transaction data of each participant together.
+// mergeSignedInput merges signed transaction data of each participant to one.
 func (matcher *JoinSession) mergeSignedInput(req *submitSignedTxReq) error {
 
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
@@ -285,7 +286,7 @@ func (matcher *JoinSession) mergeSignedInput(req *submitSignedTxReq) error {
 	return nil
 }
 
-// publishTxResult publishes joined transaction to network.
+// publishTxResult publishes the joined transaction to network.
 func (matcher *JoinSession) publishTxResult(req *publishedTxReq) error {
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
 		return ErrSessionNotFound
@@ -339,7 +340,7 @@ func (matcher *JoinSession) RemoveSessionID(sessionID SessionID) error {
 	return ErrSessionIDNotFound
 }
 
-// addParticipantInput adds transaction data to joined transaction of each participant.
+// addParticipantInput adds transaction data of each participant to joined transaction.
 func (matcher *JoinSession) addParticipantInput(req *submitSplitTxReq) ([]int32, []int32, error) {
 
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
@@ -354,7 +355,7 @@ func (matcher *JoinSession) addParticipantInput(req *submitSplitTxReq) ([]int32,
 
 	participant.chanSubmitSplitTxRes = req.resp
 
-	// If this is first participant session then assign splittx to MergedSplitTx
+	// Clone the sending transaction if this is first sending participant.
 	if matcher.SessionData.MergedSplitTx == nil {
 		matcher.SessionData.MergedSplitTx = req.splitTx.Copy()
 
@@ -391,10 +392,10 @@ func (matcher *JoinSession) addParticipantInput(req *submitSplitTxReq) ([]int32,
 }
 
 // SendTxData sends merged transaction data to each participant.
-// This includes total transaction from all participants and participant's input and output index.
+// This includes merged transaction from all participants and participant's input and output index.
 func (matcher *JoinSession) SendTxData() {
 	log.Debug("Send the joined split transactions back to each participant")
-	// Needs to random index here
+	// If RandomIndex option is enable, server swaps randomly both input and output index.
 	if matcher.cfg.RandomIndex && len(matcher.SessionData.Participants) > 1 {
 
 		txInSize := len(matcher.SessionData.MergedSplitTx.TxIn)
@@ -449,9 +450,9 @@ func (matcher *JoinSession) SendTxData() {
 				outputIndes: p.OutputIndes,
 			}
 		}
-		// Update progress
+		// Update join session progress.
 		matcher.progress = StateSignedTx
-		// Add timer for waiting participants send signed split tx
+		// Add timer for next join step.
 		matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
 	} else {
 
@@ -463,13 +464,13 @@ func (matcher *JoinSession) SendTxData() {
 				outputIndes: p.OutputIndes,
 			}
 		}
-		// Add timer for waiting participants send signed split tx
+		// Add timer for next join step.
 		matcher.clientTimeout = time.NewTimer(time.Second * time.Duration(matcher.cfg.WaitingTimer))
 	}
 }
 
-// AddParticipant adds join request transaction
-// server processes the request and returns join session data.
+// AddParticipant adds join request join transaction and
+// returns join session data when enough participants for join session.
 func (matcher *JoinSession) AddParticipant(maxAmount uint64, sessID SessionID) (*SessionParticipant, error) {
 
 	req := addParticipantReq{
@@ -485,7 +486,7 @@ func (matcher *JoinSession) AddParticipant(maxAmount uint64, sessID SessionID) (
 
 // PublishTransaction validates the signed input provided by one of the
 // participants of the given session and publishes the transaction. It blocks
-// until all participants sent their inputs
+// until all participants sent their inputs.
 func (matcher *JoinSession) SubmitSplitTx(sessionID SessionID, splitTx *wire.MsgTx,
 	splitTxOutputIndex int, input *wire.TxIn) (*wire.MsgTx, []int32, []int32, error) {
 
@@ -502,8 +503,8 @@ func (matcher *JoinSession) SubmitSplitTx(sessionID SessionID, splitTx *wire.Msg
 	return resp.tx, resp.inputIndes, resp.outputIndes, resp.err
 }
 
-// SubmitSignedTransaction gets signed inputs from parti and
-// merge to one transaction
+// SubmitSignedTransaction gets signed inputs from participants and
+// build to one transaction.
 func (matcher *JoinSession) SubmitSignedTx(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, bool, error) {
 
 	req := submitSignedTxReq{
@@ -517,8 +518,8 @@ func (matcher *JoinSession) SubmitSignedTx(sessionID SessionID, signedTx *wire.M
 	return resp.tx, resp.publisher, resp.err
 }
 
-// PublishResult gets signed inputs from participant and
-// get the published one and send for other participants
+// PublishResult receives published transaction from one participant,
+// sending to other participants.
 func (matcher *JoinSession) PublishResult(sessionID SessionID, signedTx *wire.MsgTx) (*wire.MsgTx, error) {
 
 	req := publishedTxReq{
