@@ -33,7 +33,9 @@ type (
 		Conn        *websocket.Conn
 		JoinSession *JoinSession
 		JoinQueue   *JoinQueue
-		PK          []byte
+		Pk          []byte
+		Vk          []byte
+		Sk          []byte
 		IPAddr      string
 		cmd         int
 		writeChan   chan []byte
@@ -48,6 +50,7 @@ type (
 		DcExpVector []field.Field
 		DcXorVector [][]byte
 		Commit      []byte
+		Padding     field.Field
 		TmpData     []byte
 
 		TxIns       *wire.MsgTx
@@ -88,10 +91,12 @@ func (peer *PeerInfo) ResetData(id, sessionId uint32) {
 	peer.InputIndex = []int{}
 	peer.DcExpVector = []field.Field{}
 	peer.DcXorVector = [][]byte{}
-	peer.PK = []byte{}
+	peer.Pk = []byte{}
 	peer.TxIns = nil
 	peer.SignedTx = nil
 	peer.Commit = []byte{}
+	peer.NumMsg = 0
+	peer.Padding = field.Field{}
 }
 
 // Run does join transaction in every 2 minutes (setting in config file).
@@ -289,29 +294,33 @@ func (peer *PeerInfo) ReadMessages() {
 					peer.JoinSession.removePeer(peer.Id)
 				case StateDcExponential, StateDcXor, StateTxInput, StateTxSign:
 					// Consider malicious peer, remove and inform to others.
-					ids := []uint32{peer.Id}
-					log.Debug("write error.StateDcExponential", ids)
-					peer.JoinSession.pushMaliciousInfo(ids)
-					// Reset join session state.
-					peer.JoinSession.State = StateKeyExchange
+					if _, ok := peer.JoinSession.Peers[peer.Id]; ok {
+						ids := []uint32{peer.Id}
+						log.Debug("write error.StateDcExponential", ids)
+						peer.JoinSession.pushMaliciousInfo(ids)
+						// Reset join session state.
+						peer.JoinSession.State = StateKeyExchange
+					}
 				case StateTxPublish:
 					peer.JoinSession.mu.Lock()
-					if peer.JoinSession.Publisher == peer.Id {
-						peer.JoinSession.removePeer(peer.Id)
-						if len(peer.JoinSession.Peers) <= 1 {
-							// Terminates fail
-						}
-						// Select other peer to publish transaction.
-						joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
-						i := 0
-						randIndex := mrand.Intn(len(peer.JoinSession.Peers))
-						for _, peerInfo := range peer.JoinSession.Peers {
-							if i == randIndex {
-								peer.JoinSession.Publisher = peerInfo.Id
-								peerInfo.writeChan <- joinTxMsg.ToBytes()
-								break
+					if _, ok := peer.JoinSession.Peers[peer.Id]; ok {
+						if peer.JoinSession.Publisher == peer.Id {
+							peer.JoinSession.removePeer(peer.Id)
+							if len(peer.JoinSession.Peers) <= 1 {
+								// Terminates fail
 							}
-							i++
+							// Select other peer to publish transaction.
+							joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
+							i := 0
+							randIndex := mrand.Intn(len(peer.JoinSession.Peers))
+							for _, peerInfo := range peer.JoinSession.Peers {
+								if i == randIndex {
+									peer.JoinSession.Publisher = peerInfo.Id
+									peerInfo.writeChan <- joinTxMsg.ToBytes()
+									break
+								}
+								i++
+							}
 						}
 					}
 					peer.JoinSession.mu.Unlock()
@@ -330,7 +339,7 @@ func (peer *PeerInfo) ReadMessages() {
 		message, err := messages.ParseMessage(data)
 		if err != nil {
 			log.Errorf("Can not parse data from websocket: %v", err)
-			break
+			continue
 		}
 
 		// Check message type, forwarding the message data to corresponding channel.
@@ -346,10 +355,10 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, keyex)
 			if err != nil {
 				log.Errorf("Can not unmarshal KeyExchangeReq: %v", err)
-				break
+				peer.JoinSession.removePeer(peer.Id)
+				continue
 			}
 			keyex.PeerId = peer.Id
-
 			peer.JoinSession.keyExchangeChan <- *keyex
 
 		case messages.C_DC_EXP_VECTOR:
@@ -363,7 +372,8 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, dcExpVector)
 			if err != nil {
 				log.Errorf("Can not unmarshal DcExpVector: %v", err)
-				break
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
 			}
 			dcExpVector.PeerId = peer.Id
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
@@ -379,7 +389,8 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, dcXorVector)
 			if err != nil {
 				log.Errorf("Can not unmarshal DcExpVector: %v", err)
-				break
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
 			}
 			dcXorVector.PeerId = peer.Id
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
@@ -395,7 +406,8 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, txins)
 			if err != nil {
 				log.Errorf("Can not unmarshal TxInputs: %v", err)
-				break
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
 			}
 			txins.PeerId = peer.Id
 			peer.JoinSession.txInputsChan <- *txins
@@ -411,7 +423,8 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, signTx)
 			if err != nil {
 				log.Errorf("Can not unmarshal JoinTx: %v", err)
-				break
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
 			}
 			signTx.PeerId = peer.Id
 			peer.JoinSession.txSignedTxChan <- *signTx
@@ -424,6 +437,7 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			pubResult := &pb.PublishResult{}
+			pubResult.PeerId = peer.Id
 			if peer.Id != peer.JoinSession.Publisher {
 				log.Debugf("peer %d is not publisher %d", peer.Id, peer.JoinSession.Publisher)
 				continue
@@ -431,10 +445,29 @@ func (peer *PeerInfo) ReadMessages() {
 			err := proto.Unmarshal(message.Data, pubResult)
 			if err != nil {
 				log.Errorf("Can not unmarshal PublishResult: %v", err)
-				break
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
 			}
-			pubResult.PeerId = peer.Id
 			peer.JoinSession.txPublishResultChan <- *pubResult
+		case messages.C_REVEAL_SECRET:
+			if !(peer.JoinSession.State == StateDcExponential || peer.JoinSession.State == StateDcXor) {
+				// Peer sent invalid data with state
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateRevealSecret",
+					peer.JoinSession.getStateString(), peer.Id)
+				continue
+			}
+			rs := &pb.RevealSecret{}
+			err := proto.Unmarshal(message.Data, rs)
+			if err != nil {
+				log.Errorf("Can not unmarshal reveal secrect key: %v", err)
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
+			}
+			rs.PeerId = peer.Id
+			peer.JoinSession.revealSecretChan <- *rs
+
+		case messages.C_MSG_HASH_NOT_FOUND:
+		case messages.C_MSG_HASH_NOT_FOUND:
 		}
 
 	}

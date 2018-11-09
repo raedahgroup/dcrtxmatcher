@@ -96,7 +96,6 @@ func run(ctx context.Context) error {
 		joinQueue := matcher.NewJoinQueue()
 
 		intf := fmt.Sprintf(":%d", config.Port)
-
 		lis, err := net.Listen("tcp", intf)
 		if err != nil {
 			log.Errorf("Error listening: %v", err)

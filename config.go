@@ -30,7 +30,7 @@ const (
 	defaultMinParticipants = 2
 	defaultPort            = 8475
 	defaultRandomIndex     = true
-	defaultJoinTicker      = 120
+	defaultJoinTicker      = 60
 	defaultWaitingTimer    = 30
 	defaultCompleteJoin    = true
 	defaultBlindServer     = true
