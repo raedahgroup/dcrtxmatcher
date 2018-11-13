@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/decred/dcrwallet/dcrtxclient/chacharng"
 	"github.com/decred/dcrwallet/dcrtxclient/finitefield"
 	"github.com/decred/dcrwallet/dcrtxclient/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/ripemd128"
 	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/gogo/protobuf/proto"
 	"github.com/huyntsgs/go-ecdh"
@@ -32,6 +34,7 @@ const (
 	StateTxSign        = 5
 	StateTxPublish     = 6
 	StateCompleted     = 7
+	StateRevealSecret  = 8
 )
 
 type (
@@ -47,6 +50,8 @@ type (
 		JoinedTx     *wire.MsgTx
 		Publisher    uint32
 
+		findMalicious bool
+
 		keyExchangeChan     chan pb.KeyExchangeReq
 		dcExpVectorChan     chan pb.DcExpVector
 		dcXorVectorChan     chan pb.DcXorVector
@@ -54,6 +59,7 @@ type (
 		txSignedTxChan      chan pb.JoinTx
 		txPublishResultChan chan pb.PublishResult
 		revealSecretChan    chan pb.RevealSecret
+		msgNotFoundChan     chan pb.MsgNotFound
 		roundTimeout        *time.Timer
 	}
 )
@@ -71,6 +77,7 @@ func NewJoinSession(sessionId uint32, roundTimeOut int) *JoinSession {
 		revealSecretChan:    make(chan pb.RevealSecret),
 		PeersMsgInfo:        make([]*pb.PeerInfo, 0),
 		txPublishResultChan: make(chan pb.PublishResult),
+		msgNotFoundChan:     make(chan pb.MsgNotFound),
 		roundTimeout:        time.NewTimer(time.Second * time.Duration(roundTimeOut)),
 		State:               StateKeyExchange,
 	}
@@ -208,6 +215,11 @@ LOOP:
 						joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 					}
 					joinSession.mu.Unlock()
+				case StateRevealSecret:
+					if len(peer.Vk) == 0 {
+						missedPeers = append(missedPeers, peer.Id)
+						log.Infof("Peer id %d did not send secret key in time", peer.Id)
+					}
 				}
 			}
 
@@ -405,24 +417,29 @@ LOOP:
 				}
 			}
 			if allSubmit {
-				for _, msg := range allPkScripts {
-					log.Debugf("Pkscript %x", msg)
-				}
-
 				// Signal to all peers that server has got all pkscripts.
 				// Peers will process next step
 				dcXorRet := &pb.DcXorVectorResult{}
+				msgs := make([]byte, 0)
+				for _, msg := range allPkScripts {
+					//log.Debugf("Pkscript %x, len msg %d", msg, len(msg))
+					msgs = append(msgs, msg...)
+				}
+				dcXorRet.Msgs = msgs
+				//log.Debugf("Len of dcXorRet.Msgs %d, len allPkScripts %d", len(dcXorRet.Msgs), len(allPkScripts))
+
 				dcXorData, err := proto.Marshal(dcXorRet)
 				if err != nil {
-					log.Errorf("error Marshal DcXorVectorResult %v", err)
+					log.Errorf("Can not marshal DcXorVectorResult: %v", err)
 				}
+
+				log.Debug("Has solved dc-net xor vector and got all pkscripts")
+				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
+				joinSession.State = StateTxInput
 				message := messages.NewMessage(messages.S_DC_XOR_VECTOR, dcXorData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- message.ToBytes()
 				}
-				log.Debug("Has solved dc-net xor vector and got all pkscripts")
-				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
-				joinSession.State = StateTxInput
 			}
 			joinSession.mu.Unlock()
 		case txins := <-joinSession.txInputsChan:
@@ -594,16 +611,15 @@ LOOP:
 			log.Info("Broadcast published tx to all peers")
 			// Need to break for loop to terminate the join session
 			break LOOP
-
 		case revealSecret := <-joinSession.revealSecretChan:
 			// Save verify key
 			joinSession.mu.Lock()
 			peerInfo := joinSession.Peers[revealSecret.PeerId]
 			if peerInfo == nil {
+				joinSession.mu.Unlock()
 				log.Debug("joinSession %d does not include peer %d", joinSession.Id, revealSecret.PeerId)
 				continue
 			}
-			//ecp256 := ecdh.NewEllipticECDH(elliptic.P256())
 
 			// TODO: Verify pk and vk match.
 			peerInfo.Vk = revealSecret.Vk
@@ -620,16 +636,16 @@ LOOP:
 				// Replay all message protocol to find the malicious peers.
 				// Create peer's random bytes for dc-net exponential and dc-net xor.
 				ecp256 := ecdh.NewEllipticECDH(elliptic.P256())
-				replayPeers := make(map[uint32]map[uint32]*PeerInfo, 0)
+				replayPeers := make(map[uint32]map[uint32]*PeerReplayInfo, 0)
 
 				for _, p := range joinSession.Peers {
-					replayPeer := make(map[uint32]*PeerInfo)
+					replayPeer := make(map[uint32]*PeerReplayInfo)
 					pVk := ecp256.UnmarshalPrivateKey(p.Vk)
 					for _, op := range joinSession.Peers {
 						if p.Id == op.Id {
 							continue
 						}
-						opeerInfo := &PeerInfo{}
+						opeerInfo := &PeerReplayInfo{}
 						opPk, _ := ecp256.Unmarshal(op.Pk)
 
 						// Generate shared key with other peer from peer's private key and other peer's public key
@@ -687,14 +703,15 @@ LOOP:
 						log.Infof("Peer %d is malicious - sent invalid public/verify key pair", pid)
 					}
 				}
+
 				// Share keys are correct. Check dc-net exponential and dc-net xor vector.
+				peerSlotInfos := make(map[uint32]*PeerSlotInfo, 0)
 				for pid, pInfo := range joinSession.Peers {
 					replayPeer := replayPeers[pid]
-					//expVector := pInfo.DcExpVector
 
 					expVector := make([]field.Field, len(pInfo.DcExpVector))
 					copy(expVector, pInfo.DcExpVector)
-
+					slotInfo := &PeerSlotInfo{Id: pid}
 					for opid, opInfo := range replayPeer {
 						dcexpRng, err := chacharng.RandBytes(opInfo.Sk, messages.ExpRandSize)
 						if err != nil {
@@ -703,10 +720,10 @@ LOOP:
 						dcexpRng = append([]byte{0, 0, 0, 0}, dcexpRng...)
 
 						// For random byte of Xor vector, we get the same size of pkscript is 25 bytes
-						//						dcXorRng, err := chacharng.RandBytes(opInfo.Sk, messages.PkScriptSize)
-						//						if err != nil {
-						//							//return nil, err
-						//						}
+						dcXorRng, err := chacharng.RandBytes(opInfo.Sk, messages.PkScriptSize)
+						if err != nil {
+							//return nil, err
+						}
 
 						padding := field.NewFF(field.FromBytes(dcexpRng))
 						for i := 0; i < int(pInfo.NumMsg); i++ {
@@ -716,84 +733,230 @@ LOOP:
 								expVector[i] = expVector[i].Add(padding)
 							}
 						}
-
-						opInfo.Padding = padding
+						opInfo.DcExpPadding = padding
+						opInfo.DcXorRng = dcXorRng
 					}
 
 					// Now we have true exponential vector without padding.
 					log.Debug("Resolve polynomial to get roots as hash of pkscript")
 					if pInfo.NumMsg > 1 {
 						ret, roots := flint.GetRoots(field.Prime.HexStr(), expVector[:pInfo.NumMsg], int(pInfo.NumMsg))
-						log.Infof("Func returns of peer %d: %d", ret, pid)
-						log.Infof("Number roots: %d", len(roots))
-						log.Infof("Roots: %v", roots)
+						log.Debugf("Func returns of peer %d: %d", ret, pid)
+						log.Debugf("Number roots: %d", len(roots))
+						log.Debugf("Roots: %v", roots)
 
 						if ret != 0 {
 							// This peer is malicious.
 							maliciousIds = append(maliciousIds, pid)
-							log.Debugf("Peer is malicious: %d", pid)
-							continue
-						} else {
-							// Build the dc-net exponential from messages and padding then compare dc-net vector.
-							log.Infof("Total msg: %d", joinSession.TotalMsg)
-							sentVector := make([]field.Field, joinSession.TotalMsg)
-							for _, s := range roots {
-								n, err := field.Uint128FromString(s)
-								if err != nil {
-									log.Errorf("Can not parse from string %v", err)
-								}
-
-								ff := field.NewFF(n)
-								for i := 0; i < joinSession.TotalMsg; i++ {
-									sentVector[i] = sentVector[i].Add(ff.Exp(uint64(i + 1)))
-								}
-							}
-							//							for i := 0; i < int(joinSession.TotalMsg); i++ {
-							//								log.Debugf("Exp vector bf padding %x", sentVector[i].N.GetBytes())
-							//							}
-
-							// Padding with random number generated with secret key seed.
-							for i := 0; i < int(joinSession.TotalMsg); i++ {
-								// Padding with other peers.
-								replayPeer := replayPeers[pid]
-								for opId, opInfo := range replayPeer {
-									if pid > opId {
-										sentVector[i] = sentVector[i].Add(opInfo.Padding)
-									} else if pid < opId {
-										sentVector[i] = sentVector[i].Sub(opInfo.Padding)
-									}
-								}
-							}
-
-							for i := 0; i < int(joinSession.TotalMsg); i++ {
-								log.Debugf("Exp vector af padding %x", sentVector[i].N.GetBytes())
-							}
-
-							for i := 0; i < int(joinSession.TotalMsg); i++ {
-								log.Debugf("compare original %x - new build dc-net %x", pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes())
-								if bytes.Compare(pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes()) != 0 {
-									// malicious peer
-									log.Debugf("Compare dc-net vector, peer is malicious: %d", pid)
-									maliciousIds = append(maliciousIds, pid)
-									break
-								}
-							}
+							log.Infof("Peer is malicious: %d", pid)
 							continue
 						}
+
+						// Build the dc-net exponential from messages and padding then compare dc-net vector.
+						log.Infof("Total msg: %d", joinSession.TotalMsg)
+						sentVector := make([]field.Field, joinSession.TotalMsg)
+
+						msgHash := make([]field.Uint128, 0)
+						for _, s := range roots {
+							n, err := field.Uint128FromString(s)
+							if err != nil {
+								log.Errorf("Can not parse from string %v", err)
+							}
+
+							ff := field.NewFF(n)
+							for i := 0; i < joinSession.TotalMsg; i++ {
+								sentVector[i] = sentVector[i].Add(ff.Exp(uint64(i + 1)))
+							}
+							msgHash = append(msgHash, n)
+						}
+						slotInfo.MsgHash = msgHash
+
+						// Padding with random number generated with secret key seed.
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							// Padding with other peers.
+							replayPeer := replayPeers[pid]
+							for opId, opInfo := range replayPeer {
+								if pid > opId {
+									sentVector[i] = sentVector[i].Add(opInfo.DcExpPadding)
+								} else if pid < opId {
+									sentVector[i] = sentVector[i].Sub(opInfo.DcExpPadding)
+								}
+							}
+						}
+
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							log.Debugf("Exp vector af padding %x", sentVector[i].N.GetBytes())
+						}
+
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							//log.Debugf("compare original %x - new build dc-net %x", pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes())
+							if bytes.Compare(pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes()) != 0 {
+								// malicious peer
+								log.Debugf("Compare dc-net vector, peer is malicious: %d", pid)
+								maliciousIds = append(maliciousIds, pid)
+								break
+							}
+						}
+						peerSlotInfos[slotInfo.Id] = slotInfo
+						continue
 					}
 
-					// Check peer dc-net vector match with vector has sent to server.
+					// Check whether peer dc-net vector matches with vector has sent to server.
 					if pInfo.NumMsg == 1 {
+						sentVector := make([]field.Field, joinSession.TotalMsg)
+						ff := expVector[0]
+						slotInfo.MsgHash = []field.Uint128{ff.N}
+						for i := 0; i < joinSession.TotalMsg; i++ {
+							sentVector[i] = sentVector[i].Add(ff.Exp(uint64(i + 1)))
+						}
 
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							log.Debugf("Exp vector bf padding %x", sentVector[i].N.GetBytes())
+						}
+
+						// Padding with random number generated with secret key seed.
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							// Padding with other peers.
+							replayPeer := replayPeers[pid]
+							for opId, opInfo := range replayPeer {
+								if pid > opId {
+									sentVector[i] = sentVector[i].Add(opInfo.DcExpPadding)
+								} else if pid < opId {
+									sentVector[i] = sentVector[i].Sub(opInfo.DcExpPadding)
+								}
+							}
+						}
+
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							log.Debugf("Exp vector af padding %x", sentVector[i].N.GetBytes())
+						}
+
+						for i := 0; i < int(joinSession.TotalMsg); i++ {
+							log.Debugf("compare original %x - new build dc-net %x", pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes())
+							if bytes.Compare(pInfo.DcExpVector[i].N.GetBytes(), sentVector[i].N.GetBytes()) != 0 {
+								// malicious peer
+								log.Debugf("Compare dc-net vector, peer is malicious: %d", pid)
+								maliciousIds = append(maliciousIds, pid)
+								break
+							}
+						}
+						peerSlotInfos[slotInfo.Id] = slotInfo
+						continue
 					}
+
+				}
+				log.Debug("join state", joinSession.getStateString())
+
+				if joinSession.State == StateTxInput || joinSession.State == StateRevealSecret {
+					// Client can not find message at dc-net xor round.
+					// We have found all msg hash. Identify the peer's slot index.
+					allMsgHash := make([]field.Uint128, 0)
+					for _, slotInfo := range peerSlotInfos {
+						allMsgHash = append(allMsgHash, slotInfo.MsgHash...)
+					}
+					sort.Slice(allMsgHash, func(i, j int) bool {
+						return allMsgHash[i].Compare(allMsgHash[j]) < 0
+					})
+
+					for i, msg := range allMsgHash {
+						log.Debugf("All msg, msghash :%x, Index: %d", msg.GetBytes(), i)
+					}
+
+					log.Debugf("len(allMsgHash) %d, len(peerSlotInfos) %d", len(allMsgHash), len(peerSlotInfos))
+					for _, slotInfo := range peerSlotInfos {
+						slotInfo.SlotIndex = make([]int, 0)
+						for _, msg := range slotInfo.MsgHash {
+							for i := 0; i < len(allMsgHash); i++ {
+								if msg.Compare(allMsgHash[i]) == 0 {
+									log.Debugf("Peer: %d, msghash :%x, Index: %d", slotInfo.Id, msg.GetBytes(), i)
+									slotInfo.SlotIndex = append(slotInfo.SlotIndex, i)
+								}
+							}
+						}
+
+						if len(slotInfo.SlotIndex) != len(slotInfo.MsgHash) {
+							// Can not find all mesages hash of peer. Terminates fail.
+							log.Debug("len(slotInfo.SlotIndex) != len(slotInfo.MsgHash)")
+						}
+						log.Debugf("Peer %d, slotInfo.SlotIndex %v", slotInfo.Id, slotInfo.SlotIndex)
+					}
+					
+					for _, slotInfo := range peerSlotInfos {
+						slotInfo.RealMessage = make([][]byte, len(joinSession.Peers[slotInfo.Id].DcXorVector))
+						copy(slotInfo.RealMessage, joinSession.Peers[slotInfo.Id].DcXorVector)
+						for i, realMsg := range slotInfo.RealMessage {
+							//realMsg := joinSession.Peers[slotInfo.Id].DcXorVector[i]
+							log.Debugf("Peer %d, index: %d, dcxorvector message %x", slotInfo.Id, i, realMsg)
+							var err error
+							replayPeer := replayPeers[slotInfo.Id]
+							for _, replay := range replayPeer {
+								log.Debugf("Real message %x, replay.DcXorRng %x", realMsg, replay.DcXorRng)
+								realMsg, err = util.XorBytes(realMsg, replay.DcXorRng)
+								if err != nil {
+									// Can not xor
+									log.Errorf("Can not xor: %v", err)
+								}
+							}
+							log.Debugf("Real message %x", realMsg)
+							//slotInfo.RealMessage = append(slotInfo.RealMessage, realMsg)
+						}
+					}
+					for _, slotInfo := range peerSlotInfos {
+						for i := 0; i < len(slotInfo.RealMessage); i++ {
+							isSlot := false
+							for j := 0; j < len(slotInfo.SlotIndex); j++ {
+								if i == slotInfo.SlotIndex[j] {
+									log.Debugf("SlotIndex: %d", i)
+									ripemdHash := ripemd128.New()
+									_, err := ripemdHash.Write(slotInfo.RealMessage[i])
+									if err != nil {
+										// Can not write hash
+									}
+									hash := ripemdHash.Sum127(nil)
+									log.Debugf("msgHash: %x, realmsg: %x, hash real msg: %x",
+										allMsgHash[i].GetBytes(), slotInfo.RealMessage[i], hash)
+									if bytes.Compare(allMsgHash[i].GetBytes(), hash) != 0 {
+										// This is malicious peer
+										log.Infof("Peer %d  sent invalid dc-net xor vector", slotInfo.Id)
+										maliciousIds = append(maliciousIds, slotInfo.Id)
+										break
+									}
+									isSlot = true
+								}
+							}
+							if !isSlot {
+
+							}
+						}
+
+					}					
+					log.Debugf("End check dc-xor")
 				}
 			}
+			joinSession.findMalicious = false
 			joinSession.mu.Unlock()
 
 			if len(maliciousIds) > 0 {
 				joinSession.pushMaliciousInfo(maliciousIds)
 				continue
 			}
+		case data := <-joinSession.msgNotFoundChan:
+			joinSession.mu.Lock()
+			peerInfo := joinSession.Peers[data.PeerId]
+			if peerInfo == nil {
+				log.Debug("joinSession %d does not include peer %d", joinSession.Id, data.PeerId)
+				joinSession.mu.Unlock()
+				continue
+			}
+
+			// Reveal verify key to find the malicious.
+			msg := messages.NewMessage(messages.S_REVEAL_SECRET, []byte{0x00})
+			for _, peer := range joinSession.Peers {
+				peer.writeChan <- msg.ToBytes()
+			}
+			joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
+			joinSession.State = StateRevealSecret
+			joinSession.mu.Unlock()
 		}
 	}
 	log.Infof("Session %d terminates sucessfully", joinSession.Id)
@@ -816,7 +979,7 @@ func (joinSession *JoinSession) randomPublisher() uint32 {
 
 // getStateString converts join session state value to string.
 func (joinSession *JoinSession) getStateString() string {
-	state := ""
+	state := string(joinSession.State)
 
 	switch joinSession.State {
 	case 1:
@@ -831,6 +994,10 @@ func (joinSession *JoinSession) getStateString() string {
 		state = "StateTxSign"
 	case 6:
 		state = "StateTxPublish"
+	case 7:
+		state = "StateCompleted"
+	case 8:
+		state = "StateRevealSecret"
 	}
 	return state
 }

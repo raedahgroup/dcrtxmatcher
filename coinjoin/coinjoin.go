@@ -58,6 +58,38 @@ type (
 		TicketPrice int64
 	}
 
+	// PeerReplayInfo contains necessary data for replay protocol.
+	PeerReplayInfo struct {
+		Id        uint32
+		SessionId uint32
+		Pk        []byte
+		Vk        []byte
+		Sk        []byte
+
+		// Peer number of pkscripts ~ number of tickets purchase
+		NumMsg uint32
+		// Peer slot index
+		SlotIndex    []int
+		DcExpVector  []field.Field
+		DcXorVector  [][]byte
+		DcExpPadding field.Field
+		TmpData      []byte
+		DcXorRng     []byte
+	}
+
+	PeerSlotInfo struct {
+		Id uint32
+		Pk []byte
+		Vk []byte
+		Sk []byte
+		// Peer number of pkscripts ~ number of tickets purchase
+		NumMsg uint32
+		// Peer slot index
+		SlotIndex   []int
+		MsgHash     []field.Uint128
+		RealMessage [][]byte
+	}
+
 	JoinQueue struct {
 		mu          sync.Mutex
 		Peers       map[uint32]*PeerInfo
@@ -450,7 +482,9 @@ func (peer *PeerInfo) ReadMessages() {
 			}
 			peer.JoinSession.txPublishResultChan <- *pubResult
 		case messages.C_REVEAL_SECRET:
-			if !(peer.JoinSession.State == StateDcExponential || peer.JoinSession.State == StateDcXor) {
+			workState := peer.JoinSession.State == StateDcExponential || peer.JoinSession.State == StateDcXor ||
+				peer.JoinSession.State == StateTxInput || peer.JoinSession.State == StateRevealSecret
+			if !workState {
 				// Peer sent invalid data with state
 				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateRevealSecret",
 					peer.JoinSession.getStateString(), peer.Id)
@@ -466,7 +500,29 @@ func (peer *PeerInfo) ReadMessages() {
 			rs.PeerId = peer.Id
 			peer.JoinSession.revealSecretChan <- *rs
 
-		case messages.C_MSG_HASH_NOT_FOUND:
+		case messages.C_MESSAGE_NOT_FOUND:
+			if !(peer.JoinSession.State == StateDcXor || peer.JoinSession.State == StateTxInput) {
+				// Peer sent invalid data with state
+				log.Infof("Current join session state is %s. Peer id %d has sent invalid state: StateMsgNotFound",
+					peer.JoinSession.getStateString(), peer.Id)
+				continue
+			}
+
+			if peer.JoinSession.findMalicious {
+				continue
+			}
+
+			msg := &pb.MsgNotFound{}
+			err := proto.Unmarshal(message.Data, msg)
+			if err != nil {
+				log.Errorf("Can not proto.Unmarshal: %v", err)
+				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
+			}
+
+			msg.PeerId = peer.Id
+			peer.JoinSession.findMalicious = true
+			peer.JoinSession.msgNotFoundChan <- *msg
 		case messages.C_MSG_HASH_NOT_FOUND:
 		}
 
