@@ -124,6 +124,8 @@ func (peer *PeerInfo) ResetData(id, sessionId uint32) {
 	peer.DcExpVector = []field.Field{}
 	peer.DcXorVector = [][]byte{}
 	peer.Pk = []byte{}
+	peer.Vk = []byte{}
+	peer.Sk = []byte{}
 	peer.TxIns = nil
 	peer.SignedTx = nil
 	peer.Commit = []byte{}

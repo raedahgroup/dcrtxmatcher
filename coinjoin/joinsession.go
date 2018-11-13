@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -880,12 +881,10 @@ LOOP:
 						}
 						log.Debugf("Peer %d, slotInfo.SlotIndex %v", slotInfo.Id, slotInfo.SlotIndex)
 					}
-					
+
 					for _, slotInfo := range peerSlotInfos {
-						slotInfo.RealMessage = make([][]byte, len(joinSession.Peers[slotInfo.Id].DcXorVector))
-						copy(slotInfo.RealMessage, joinSession.Peers[slotInfo.Id].DcXorVector)
-						for i, realMsg := range slotInfo.RealMessage {
-							//realMsg := joinSession.Peers[slotInfo.Id].DcXorVector[i]
+						slotInfo.RealMessage = make([][]byte, 0)
+						for i, realMsg := range joinSession.Peers[slotInfo.Id].DcXorVector {
 							log.Debugf("Peer %d, index: %d, dcxorvector message %x", slotInfo.Id, i, realMsg)
 							var err error
 							replayPeer := replayPeers[slotInfo.Id]
@@ -898,7 +897,7 @@ LOOP:
 								}
 							}
 							log.Debugf("Real message %x", realMsg)
-							//slotInfo.RealMessage = append(slotInfo.RealMessage, realMsg)
+							slotInfo.RealMessage = append(slotInfo.RealMessage, realMsg)
 						}
 					}
 					for _, slotInfo := range peerSlotInfos {
@@ -917,7 +916,7 @@ LOOP:
 										allMsgHash[i].GetBytes(), slotInfo.RealMessage[i], hash)
 									if bytes.Compare(allMsgHash[i].GetBytes(), hash) != 0 {
 										// This is malicious peer
-										log.Infof("Peer %d  sent invalid dc-net xor vector", slotInfo.Id)
+										log.Infof("Peer %d sent invalid dc-net xor vector on non-slot %d", slotInfo.Id, i)
 										maliciousIds = append(maliciousIds, slotInfo.Id)
 										break
 									}
@@ -925,11 +924,16 @@ LOOP:
 								}
 							}
 							if !isSlot {
-
+								sample := "00000000000000000000000000000000"
+								pkScript := hex.EncodeToString(slotInfo.RealMessage[i].GetBytes())
+								if strings.Compare(sample, pkScript) != 0 {
+									log.Infof("Peer %d sent invalid dc-net xor vector on non-slot %d", slotInfo.Id, i)
+									maliciousIds = append(maliciousIds, slotInfo.Id)
+									break
+								}
 							}
 						}
-
-					}					
+					}
 					log.Debugf("End check dc-xor")
 				}
 			}
