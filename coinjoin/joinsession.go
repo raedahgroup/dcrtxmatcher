@@ -925,7 +925,7 @@ LOOP:
 							}
 							if !isSlot {
 								sample := "00000000000000000000000000000000"
-								pkScript := hex.EncodeToString(slotInfo.RealMessage[i].GetBytes())
+								pkScript := hex.EncodeToString(slotInfo.RealMessage[i])
 								if strings.Compare(sample, pkScript) != 0 {
 									log.Infof("Peer %d sent invalid dc-net xor vector on non-slot %d", slotInfo.Id, i)
 									maliciousIds = append(maliciousIds, slotInfo.Id)
