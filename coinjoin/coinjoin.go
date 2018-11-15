@@ -35,10 +35,10 @@ type (
 		JoinQueue   *JoinQueue
 		Pk          []byte
 		Vk          []byte
-		Sk          []byte
-		IPAddr      string
-		cmd         int
-		writeChan   chan []byte
+		//SharedKey          []byte
+		IPAddr    string
+		cmd       int
+		writeChan chan []byte
 
 		// Peer number of pkscripts ~ number of tickets purchase
 		NumMsg uint32
@@ -64,7 +64,7 @@ type (
 		SessionId uint32
 		Pk        []byte
 		Vk        []byte
-		Sk        []byte
+		SharedKey []byte
 
 		// Peer number of pkscripts ~ number of tickets purchase
 		NumMsg uint32
@@ -85,9 +85,9 @@ type (
 		// Peer number of pkscripts ~ number of tickets purchase
 		NumMsg uint32
 		// Peer slot index
-		SlotIndex   []int
-		MsgHash     []field.Uint128
-		RealMessage [][]byte
+		SlotIndex     []int
+		PkScriptsHash []field.Uint128
+		PkScripts     [][]byte
 	}
 
 	JoinQueue struct {
@@ -125,7 +125,7 @@ func (peer *PeerInfo) ResetData(id, sessionId uint32) {
 	peer.DcXorVector = [][]byte{}
 	peer.Pk = []byte{}
 	peer.Vk = []byte{}
-	peer.Sk = []byte{}
+	//peer.SharedKey = []byte{}
 	peer.TxIns = nil
 	peer.SignedTx = nil
 	peer.Commit = []byte{}

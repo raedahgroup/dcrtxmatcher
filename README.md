@@ -61,7 +61,7 @@ Building libraries
 
 \> $ wget https://gmplib.org/download/gmp/gmp-6.1.2.tar.bz2
   
-\> $ tar -jxvf gmp-6.1.2.tar
+\> $ tar -jxvf gmp-6.1.2.tar.bz2
 
 \> cd ../gmp-6.1.2
 
@@ -108,13 +108,17 @@ open Makefile.subdirs, at line 62, replace -Wl,-r with -r
 
 ## Install golang and dcrtxmatcher
 
-\> $ apt install golang-go
+\> $ wget https://dl.google.com/go/go1.11.linux-amd64.tar.gz
 
-\> $ apt install go-dep
+\> $ sudo tar -xvf go1.11.linux-amd64.tar.gz
+
+\> $ sudo mv go /usr/local
+
+\> $ export GOROOT=/usr/local/go
 
 \> $ export GOPATH=$HOME/go
 
-\> $ export PATH=$PATH:$GOPATH/bin
+\> $ export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
 
 \> $ source ~/.profile
 
@@ -124,8 +128,6 @@ open Makefile.subdirs, at line 62, replace -Wl,-r with -r
 
 \> $ git clone https://github.com/raedahgroup/dcrtxmatcher.git
 
-\> $ dep ensure -v
-
-\> $ go build -v
+\> $ env GO111MODULE=on go build -v
 
 \> $ ./dcrtxmatcher

@@ -612,18 +612,18 @@ LOOP:
 			log.Info("Broadcast published tx to all peers")
 			// Need to break for loop to terminate the join session
 			break LOOP
-		case revealSecret := <-joinSession.revealSecretChan:
+		case rvSecret := <-joinSession.revealSecretChan:
 			// Save verify key
 			joinSession.mu.Lock()
-			peerInfo := joinSession.Peers[revealSecret.PeerId]
+			peerInfo := joinSession.Peers[rvSecret.PeerId]
 			if peerInfo == nil {
 				joinSession.mu.Unlock()
-				log.Debug("joinSession %d does not include peer %d", joinSession.Id, revealSecret.PeerId)
+				log.Debug("joinSession %d does not include peer %d", joinSession.Id, rvSecret.PeerId)
 				continue
 			}
 
 			// TODO: Verify pk and vk match.
-			peerInfo.Vk = revealSecret.Vk
+			peerInfo.Vk = rvSecret.Vk
 			log.Debugf("Peer %d submit verify key %x", peerInfo.Id, peerInfo.Vk)
 
 			allSubmit := true
@@ -656,7 +656,7 @@ LOOP:
 							//return nil, err
 						}
 
-						opeerInfo.Sk = sharedKey
+						opeerInfo.SharedKey = sharedKey
 						opeerInfo.Id = op.Id
 						replayPeer[op.Id] = opeerInfo
 					}
@@ -664,9 +664,9 @@ LOOP:
 					joinSession.TotalMsg += int(p.NumMsg)
 				}
 
-				// Maintain counter of the number incorrect share key of each peer.
-				// If one peer with more than one share key is incorrect then
-				// it is true the peer is malicious.
+				// Maintain a counter the number incorrect share key of each peer.
+				// If one peer with more than one incorrect share key then
+				// the peer is malicious.
 				compareCount := make(map[uint32]int)
 				for pid, replayPeer := range replayPeers {
 					for opid, opReplayPeer := range replayPeers {
@@ -676,8 +676,8 @@ LOOP:
 
 						pInfo := opReplayPeer[pid]
 						opInfo := replayPeer[opid]
-						if bytes.Compare(pInfo.Sk, opInfo.Sk) != 0 {
-							log.Debugf("compare vk %x of peer %d with vk %x of peer %d", pInfo.Sk, pInfo.Id, opInfo.Sk, opInfo.Id)
+						if bytes.Compare(pInfo.SharedKey, opInfo.SharedKey) != 0 {
+							log.Debugf("compare vk %x of peer %d with vk %x of peer %d", pInfo.SharedKey, pInfo.Id, opInfo.SharedKey, opInfo.Id)
 							// Increase compare counter
 							if _, ok := compareCount[pid]; ok {
 								compareCount[pid] = compareCount[pid] + 1
@@ -714,14 +714,14 @@ LOOP:
 					copy(expVector, pInfo.DcExpVector)
 					slotInfo := &PeerSlotInfo{Id: pid}
 					for opid, opInfo := range replayPeer {
-						dcexpRng, err := chacharng.RandBytes(opInfo.Sk, messages.ExpRandSize)
+						dcexpRng, err := chacharng.RandBytes(opInfo.SharedKey, messages.ExpRandSize)
 						if err != nil {
 							//return nil, errors.E(op, err)
 						}
 						dcexpRng = append([]byte{0, 0, 0, 0}, dcexpRng...)
 
 						// For random byte of Xor vector, we get the same size of pkscript is 25 bytes
-						dcXorRng, err := chacharng.RandBytes(opInfo.Sk, messages.PkScriptSize)
+						dcXorRng, err := chacharng.RandBytes(opInfo.SharedKey, messages.PkScriptSize)
 						if err != nil {
 							//return nil, err
 						}
@@ -738,8 +738,9 @@ LOOP:
 						opInfo.DcXorRng = dcXorRng
 					}
 
-					// Now we have true exponential vector without padding.
-					log.Debug("Resolve polynomial to get roots as hash of pkscript")
+					// Now we have real exponential vector without padding.
+					// If dc-net exponential is valid then polynomial of peer could be solved.
+					log.Debug("Check the validity of dc-net exponential of peer by resolving polynomial.")
 					if pInfo.NumMsg > 1 {
 						ret, roots := flint.GetRoots(field.Prime.HexStr(), expVector[:pInfo.NumMsg], int(pInfo.NumMsg))
 						log.Debugf("Func returns of peer %d: %d", ret, pid)
@@ -770,7 +771,7 @@ LOOP:
 							}
 							msgHash = append(msgHash, n)
 						}
-						slotInfo.MsgHash = msgHash
+						slotInfo.PkScriptsHash = msgHash
 
 						// Padding with random number generated with secret key seed.
 						for i := 0; i < int(joinSession.TotalMsg); i++ {
@@ -806,7 +807,7 @@ LOOP:
 					if pInfo.NumMsg == 1 {
 						sentVector := make([]field.Field, joinSession.TotalMsg)
 						ff := expVector[0]
-						slotInfo.MsgHash = []field.Uint128{ff.N}
+						slotInfo.PkScriptsHash = []field.Uint128{ff.N}
 						for i := 0; i < joinSession.TotalMsg; i++ {
 							sentVector[i] = sentVector[i].Add(ff.Exp(uint64(i + 1)))
 						}
@@ -853,7 +854,7 @@ LOOP:
 					// We have found all msg hash. Identify the peer's slot index.
 					allMsgHash := make([]field.Uint128, 0)
 					for _, slotInfo := range peerSlotInfos {
-						allMsgHash = append(allMsgHash, slotInfo.MsgHash...)
+						allMsgHash = append(allMsgHash, slotInfo.PkScriptsHash...)
 					}
 					sort.Slice(allMsgHash, func(i, j int) bool {
 						return allMsgHash[i].Compare(allMsgHash[j]) < 0
@@ -866,7 +867,7 @@ LOOP:
 					log.Debugf("len(allMsgHash) %d, len(peerSlotInfos) %d", len(allMsgHash), len(peerSlotInfos))
 					for _, slotInfo := range peerSlotInfos {
 						slotInfo.SlotIndex = make([]int, 0)
-						for _, msg := range slotInfo.MsgHash {
+						for _, msg := range slotInfo.PkScriptsHash {
 							for i := 0; i < len(allMsgHash); i++ {
 								if msg.Compare(allMsgHash[i]) == 0 {
 									log.Debugf("Peer: %d, msghash :%x, Index: %d", slotInfo.Id, msg.GetBytes(), i)
@@ -875,7 +876,7 @@ LOOP:
 							}
 						}
 
-						if len(slotInfo.SlotIndex) != len(slotInfo.MsgHash) {
+						if len(slotInfo.SlotIndex) != len(slotInfo.PkScriptsHash) {
 							// Can not find all mesages hash of peer. Terminates fail.
 							log.Debug("len(slotInfo.SlotIndex) != len(slotInfo.MsgHash)")
 						}
@@ -883,7 +884,7 @@ LOOP:
 					}
 
 					for _, slotInfo := range peerSlotInfos {
-						slotInfo.RealMessage = make([][]byte, 0)
+						slotInfo.PkScripts = make([][]byte, 0)
 						for i, realMsg := range joinSession.Peers[slotInfo.Id].DcXorVector {
 							log.Debugf("Peer %d, index: %d, dcxorvector message %x", slotInfo.Id, i, realMsg)
 							var err error
@@ -897,39 +898,40 @@ LOOP:
 								}
 							}
 							log.Debugf("Real message %x", realMsg)
-							slotInfo.RealMessage = append(slotInfo.RealMessage, realMsg)
+							slotInfo.PkScripts = append(slotInfo.PkScripts, realMsg)
 						}
 					}
 					for _, slotInfo := range peerSlotInfos {
-						for i := 0; i < len(slotInfo.RealMessage); i++ {
+					LOOPRV:
+						for i := 0; i < len(slotInfo.PkScripts); i++ {
 							isSlot := false
 							for j := 0; j < len(slotInfo.SlotIndex); j++ {
 								if i == slotInfo.SlotIndex[j] {
 									log.Debugf("SlotIndex: %d", i)
 									ripemdHash := ripemd128.New()
-									_, err := ripemdHash.Write(slotInfo.RealMessage[i])
+									_, err := ripemdHash.Write(slotInfo.PkScripts[i])
 									if err != nil {
 										// Can not write hash
 									}
 									hash := ripemdHash.Sum127(nil)
 									log.Debugf("msgHash: %x, realmsg: %x, hash real msg: %x",
-										allMsgHash[i].GetBytes(), slotInfo.RealMessage[i], hash)
+										allMsgHash[i].GetBytes(), slotInfo.PkScripts[i], hash)
 									if bytes.Compare(allMsgHash[i].GetBytes(), hash) != 0 {
 										// This is malicious peer
 										log.Infof("Peer %d sent invalid dc-net xor vector on non-slot %d", slotInfo.Id, i)
 										maliciousIds = append(maliciousIds, slotInfo.Id)
-										break
+										break LOOPRV
 									}
 									isSlot = true
 								}
 							}
 							if !isSlot {
-								sample := "00000000000000000000000000000000"
-								pkScript := hex.EncodeToString(slotInfo.RealMessage[i])
+								sample := "00000000000000000000000000000000000000000000000000"
+								pkScript := hex.EncodeToString(slotInfo.PkScripts[i])
 								if strings.Compare(sample, pkScript) != 0 {
 									log.Infof("Peer %d sent invalid dc-net xor vector on non-slot %d", slotInfo.Id, i)
 									maliciousIds = append(maliciousIds, slotInfo.Id)
-									break
+									break LOOPRV
 								}
 							}
 						}
@@ -942,7 +944,6 @@ LOOP:
 
 			if len(maliciousIds) > 0 {
 				joinSession.pushMaliciousInfo(maliciousIds)
-				continue
 			}
 		case data := <-joinSession.msgNotFoundChan:
 			joinSession.mu.Lock()
