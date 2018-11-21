@@ -138,7 +138,6 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 	// After all change updated, inform clients for malicious information.
 	log.Debug("len of joinSession.Peers to push malicious ", len(joinSession.Peers))
 	for _, peer := range joinSession.Peers {
-		log.Debug("Sent S_MALICIOUS_PEERS")
 		msg := messages.NewMessage(messages.S_MALICIOUS_PEERS, peer.TmpData).ToBytes()
 		peer.writeChan <- msg
 	}
@@ -289,7 +288,7 @@ LOOP:
 				b := data.Vector[i*messages.PkScriptHashSize : (i+1)*messages.PkScriptHashSize]
 				ff := field.NewFF(field.FromBytes(b))
 				vector = append(vector, ff)
-				log.Debugf("Received dc-net exp vector %d - %x", peerInfo.Id, b)
+				//log.Debugf("Received dc-net exp vector %d - %x", peerInfo.Id, b)
 			}
 
 			peerInfo.DcExpVector = vector
@@ -316,11 +315,9 @@ LOOP:
 						dcCombine[i] = dcCombine[i].Add(peer.DcExpVector[i])
 					}
 				}
-
-				for _, ff := range dcCombine {
-					log.Debug("Dc-combine:", ff.N.HexStr())
-				}
-
+				// for _, ff := range dcCombine {
+				// 	log.Debug("Dc-combine:", ff.N.HexStr())
+				// }
 				log.Debug("Will use flint to resolve polynomial to get roots as hash of pkscript")
 
 				ret, roots := flint.GetRoots(field.Prime.HexStr(), dcCombine, polyDegree)
@@ -589,7 +586,7 @@ LOOP:
 				for _, peer := range joinSession.Peers {
 					if n == publisher {
 						peer.Publisher = true
-						log.Infof("Peer %d is random selected to publish tx", peer.Id)
+						log.Infof("Peer %d is random selected to publish tx %s", peer.Id, joinSession.JoinedTx.TxHash().String())
 						joinSession.Publisher = peer.Id
 						peer.writeChan <- joinTxMsg.ToBytes()
 						break

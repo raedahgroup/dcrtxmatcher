@@ -314,10 +314,9 @@ func (peer *PeerInfo) ReadMessages() {
 
 	defer peer.Conn.Close()
 	for {
-
 		cmd, data, err := peer.Conn.ReadMessage()
 		if err != nil {
-			log.Errorf("Can not read data from websocket: %v", err)
+			//log.Errorf("Can not read data from websocket: %v", err)
 			if peer.JoinSession != nil {
 				// Peer may disconnected, remove from join session.
 				log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
