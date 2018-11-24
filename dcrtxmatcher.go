@@ -7,15 +7,21 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/gorilla/websocket"
+	_ "net/http/pprof"
 
 	pb "github.com/decred/dcrwallet/dcrtxclient/api/matcherrpc"
+	"github.com/gorilla/websocket"
+
 	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 	"google.golang.org/grpc"
 )
 
 func main() {
+	//defer profile.Start(profile.MemProfile).Stop()
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
 	// Create a context that is cancelled when a shutdown request is received
 	// through an interrupt signal or an RPC request.
 	ctx := withShutdownCancel(context.Background())
@@ -56,8 +62,8 @@ func run(ctx context.Context) error {
 
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			upgrader := websocket.Upgrader{
-				ReadBufferSize:  1024 * 1024,
-				WriteBufferSize: 1024 * 1024,
+				ReadBufferSize:  0,
+				WriteBufferSize: 0,
 			}
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {

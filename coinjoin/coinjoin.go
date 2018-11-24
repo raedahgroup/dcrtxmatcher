@@ -56,6 +56,8 @@ type (
 		TxIns       *wire.MsgTx
 		SignedTx    *wire.MsgTx
 		TicketPrice int64
+
+		Close chan struct{}
 	}
 
 	// PeerReplayInfo contains necessary data for replay protocol.
@@ -224,6 +226,7 @@ func (joinQueue *JoinQueue) AddNewPeer(peer *PeerInfo) {
 	log.Infof("New peer connected %v - %v", peer.Id, peer.IPAddr)
 	joinQueue.Peers[peer.Id] = peer
 	peer.JoinQueue = joinQueue
+	peer.Close = make(chan struct{})
 
 	log.Infof("Number of waiting peers %v", len(joinQueue.Peers))
 
@@ -255,23 +258,27 @@ func NewPeer(wsconn *websocket.Conn) *PeerInfo {
 
 // WriteMessages writes data to peer's websocket.
 func (peer *PeerInfo) WriteMessages() {
+	defer func() {
+		peer.Conn.Close()
+		close(peer.Close)
+	}()
+
 	for {
 		select {
 		case msg := <-peer.writeChan:
+			//peer.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			err := peer.Conn.WriteMessage(websocket.BinaryMessage, msg)
 			if err != nil {
-				log.Errorf("Write messsage to socket error: %v", err)
 				if peer.JoinSession != nil {
-
-					log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
+					if peer.JoinSession.State != StateCompleted {
+						log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
+					}
 					peer.JoinSession.mu.Lock()
-
 					switch peer.JoinSession.State {
 					case StateKeyExchange:
 						// Just remove, ignore and continue.
 						peer.JoinSession.removePeer(peer.Id)
 					case StateDcExponential, StateDcXor, StateTxInput, StateTxSign:
-						log.Debug("write error.StateTxSign")
 						// Consider malicious peer, remove and inform to others.
 						ids := []uint32{peer.Id}
 						peer.JoinSession.pushMaliciousInfo(ids)
@@ -298,28 +305,20 @@ func (peer *PeerInfo) WriteMessages() {
 						}
 					}
 					peer.JoinSession.mu.Unlock()
-
 				} else {
 					peer.JoinQueue.RemovePeer(peer)
 					log.Infof("Peer %v disconnected", peer.Id)
 				}
-				break
+				return
 			}
-		}
-	}
-}
-
-// ReadMessages reads incoming data on peer's websocket and parses received data.
-func (peer *PeerInfo) ReadMessages() {
-
-	defer peer.Conn.Close()
-	for {
-		cmd, data, err := peer.Conn.ReadMessage()
-		if err != nil {
-			//log.Errorf("Can not read data from websocket: %v", err)
+		case <-peer.Close:
+			//log.Infof("<-peer.Close")
 			if peer.JoinSession != nil {
+				peer.JoinSession.mu.Lock()
 				// Peer may disconnected, remove from join session.
-				log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
+				if peer.JoinSession.State != StateCompleted {
+					log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
+				}
 
 				switch peer.JoinSession.State {
 				case StateKeyExchange:
@@ -335,7 +334,6 @@ func (peer *PeerInfo) ReadMessages() {
 						peer.JoinSession.State = StateKeyExchange
 					}
 				case StateTxPublish:
-					peer.JoinSession.mu.Lock()
 					if _, ok := peer.JoinSession.Peers[peer.Id]; ok {
 						if peer.JoinSession.Publisher == peer.Id {
 							peer.JoinSession.removePeer(peer.Id)
@@ -356,19 +354,90 @@ func (peer *PeerInfo) ReadMessages() {
 							}
 						}
 					}
-					peer.JoinSession.mu.Unlock()
 				}
+				peer.JoinSession.mu.Unlock()
 			} else {
 				peer.JoinQueue.RemovePeer(peer)
 				log.Infof("Peer %v disconnected", peer.Id)
 			}
-			break
+			return
+		}
+	}
+}
+
+// ReadMessages reads incoming data on peer's websocket and parses received data.
+func (peer *PeerInfo) ReadMessages() {
+
+	defer func() {
+		peer.Conn.Close()
+		peer.Close <- struct{}{}
+	}()
+	peer.Conn.SetReadLimit(maxMessageSize)
+
+	for {
+		//peer.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		cmd, data, err := peer.Conn.ReadMessage()
+		if err != nil {
+			//log.Errorf("Can not read data from websocket: %v", err)
+			if peer.JoinSession != nil {
+				peer.JoinSession.mu.Lock()
+				// Peer may disconnected, remove from join session.
+				if peer.JoinSession.State != StateCompleted {
+					log.Infof("Peer %v disconnected at session state %s", peer.Id, peer.JoinSession.getStateString())
+				} else {
+					log.Infof("Peer %v disconnected", peer.Id)
+				}
+
+				switch peer.JoinSession.State {
+				case StateKeyExchange:
+					// Just remove, ignore and continue.
+					peer.JoinSession.removePeer(peer.Id)
+				case StateDcExponential, StateDcXor, StateTxInput, StateTxSign:
+					// Consider malicious peer, remove and inform to others.
+					if _, ok := peer.JoinSession.Peers[peer.Id]; ok {
+						ids := []uint32{peer.Id}
+						log.Debug("write error.StateDcExponential", ids)
+						peer.JoinSession.pushMaliciousInfo(ids)
+						// Reset join session state.
+						peer.JoinSession.State = StateKeyExchange
+					}
+				case StateTxPublish:
+					if _, ok := peer.JoinSession.Peers[peer.Id]; ok {
+						if peer.JoinSession.Publisher == peer.Id {
+							peer.JoinSession.removePeer(peer.Id)
+							if len(peer.JoinSession.Peers) == 0 {
+								// Terminates fail
+								log.Warnf("All peers disconnected at StatePublish. Session %d terminates fail.", peer.JoinSession.Id)
+								return
+							}
+							// Select other peer to publish transaction.
+							joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
+							i := 0
+							randIndex := mrand.Intn(len(peer.JoinSession.Peers))
+							for _, peerInfo := range peer.JoinSession.Peers {
+								if i == randIndex {
+									peer.JoinSession.Publisher = peerInfo.Id
+									peerInfo.writeChan <- joinTxMsg.ToBytes()
+									break
+								}
+								i++
+							}
+						}
+					}
+				}
+				peer.JoinSession.mu.Unlock()
+			} else {
+				peer.JoinQueue.RemovePeer(peer)
+				log.Infof("Peer %v disconnected", peer.Id)
+			}
+			return
 		}
 		if cmd == 1 || peer.JoinSession == nil {
 			log.Debug("continue with cmd value is 1 or joinSession is nil")
 			continue
 		}
 
+		peer.JoinSession.mu.Lock()
 		message, err := messages.ParseMessage(data)
 		if err != nil {
 			log.Errorf("Can not parse data from websocket: %v", err)
@@ -392,8 +461,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			keyex.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.keyExchangeChan <- *keyex
-
 		case messages.C_DC_EXP_VECTOR:
 			if peer.JoinSession.State != StateDcExponential {
 				// Peer sent data invalid state
@@ -409,8 +478,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			dcExpVector.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.dcExpVectorChan <- *dcExpVector
-
 		case messages.C_DC_XOR_VECTOR:
 			if peer.JoinSession.State != StateDcXor {
 				// Peer sent data invalid state
@@ -426,8 +495,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			dcXorVector.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.dcXorVectorChan <- *dcXorVector
-
 		case messages.C_TX_INPUTS:
 			if peer.JoinSession.State != StateTxInput {
 				// Peer sent data invalid state
@@ -443,8 +512,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			txins.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.txInputsChan <- *txins
-
 		case messages.C_TX_SIGN:
 			if peer.JoinSession.State != StateTxSign {
 				// Peer sent data invalid state
@@ -460,8 +529,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			signTx.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.txSignedTxChan <- *signTx
-
 		case messages.C_TX_PUBLISH_RESULT:
 			if peer.JoinSession.State != StateTxPublish {
 				// Peer sent data invalid state
@@ -481,6 +550,7 @@ func (peer *PeerInfo) ReadMessages() {
 				peer.JoinSession.pushMaliciousInfo([]uint32{peer.Id})
 				continue
 			}
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.txPublishResultChan <- *pubResult
 		case messages.C_REVEAL_SECRET:
 			workState := peer.JoinSession.State == StateDcExponential || peer.JoinSession.State == StateDcXor ||
@@ -499,8 +569,8 @@ func (peer *PeerInfo) ReadMessages() {
 				continue
 			}
 			rs.PeerId = peer.Id
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.revealSecretChan <- *rs
-
 		case messages.C_MESSAGE_NOT_FOUND:
 			if !(peer.JoinSession.State == StateDcXor || peer.JoinSession.State == StateTxInput) {
 				// Peer sent invalid data with state
@@ -508,11 +578,9 @@ func (peer *PeerInfo) ReadMessages() {
 					peer.JoinSession.getStateString(), peer.Id)
 				continue
 			}
-
 			if peer.JoinSession.findMalicious {
 				continue
 			}
-
 			msg := &pb.MsgNotFound{}
 			err := proto.Unmarshal(message.Data, msg)
 			if err != nil {
@@ -523,10 +591,11 @@ func (peer *PeerInfo) ReadMessages() {
 
 			msg.PeerId = peer.Id
 			peer.JoinSession.findMalicious = true
+			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.msgNotFoundChan <- *msg
-		case messages.C_MSG_HASH_NOT_FOUND:
+		default:
+			peer.JoinSession.mu.Unlock()
 		}
-
 	}
 }
 

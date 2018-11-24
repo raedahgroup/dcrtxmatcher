@@ -292,7 +292,6 @@ LOOP:
 			}
 
 			peerInfo.DcExpVector = vector
-			//peerInfo.Commit = data.Commit
 
 			log.Debug("Received dc-net exponential from peer", peerInfo.Id)
 			allSubmit := true
@@ -586,7 +585,7 @@ LOOP:
 				for _, peer := range joinSession.Peers {
 					if n == publisher {
 						peer.Publisher = true
-						log.Infof("Peer %d is random selected to publish tx %s", peer.Id, joinSession.JoinedTx.TxHash().String())
+						log.Infof("Peer %d is randomly selected to publish tx %s", peer.Id, joinSession.JoinedTx.TxHash().String())
 						joinSession.Publisher = peer.Id
 						peer.writeChan <- joinTxMsg.ToBytes()
 						break

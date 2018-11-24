@@ -31,7 +31,7 @@ const (
 	defaultPort            = 8475
 	defaultRandomIndex     = true
 	defaultJoinTicker      = 120
-	defaultWaitingTimer    = 30
+	defaultWaitingTimer    = 60
 	defaultCompleteJoin    = true
 	defaultBlindServer     = true
 )
