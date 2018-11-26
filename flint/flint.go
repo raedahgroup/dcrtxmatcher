@@ -1,7 +1,7 @@
 package flint
 
 /*
-#cgo CFLAGS: -I ../include:/usr/local/include
+#cgo CFLAGS: -I../include -I/usr/local/include
 #cgo LDFLAGS: -L /usr/local/lib -lflint -lmpfr -lmpir -lpthread
 #cgo LDFLAGS: -Wl,-rpath,/usr/local/lib
 #include <stdio.h>
