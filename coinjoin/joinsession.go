@@ -86,12 +86,14 @@ func NewJoinSession(sessionId uint32, roundTimeOut int) *JoinSession {
 
 // removePeer removes peer from join session and disconnected websocket connection.
 func (joinSession *JoinSession) removePeer(peerId uint32) {
-	peer := joinSession.Peers[peerId]
-	delete(joinSession.Peers, peerId)
-	if peer != nil {
-		peer.Conn.Close()
+	peer, ok := joinSession.Peers[peerId]
+	if ok {
+		delete(joinSession.Peers, peerId)
+		if peer != nil {
+			peer.Conn.Close()
+		}
+		log.Infof("Remove peer %d from join session", peerId)
 	}
-	log.Infof("Remove peer %d from join session", peerId)
 }
 
 // pushMaliciousInfo removes peer ids from join session and disconnects.
@@ -101,16 +103,15 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 
 	joinSession.mu.Lock()
 	defer joinSession.mu.Unlock()
-	log.Debug("Len of malicious", len(missedPeers))
+	log.Debug("Number malicious", len(missedPeers))
 	malicious := &pb.MaliciousPeers{}
 	for _, Id := range missedPeers {
 		joinSession.removePeer(Id)
 	}
 	malicious.PeerIds = missedPeers
 
-	if len(joinSession.Peers) <= 0 {
+	if len(joinSession.Peers) == 0 {
 		log.Info("All peers not sending data in time, join session terminates")
-		// Send terminate fails to client.
 		return
 	}
 
@@ -145,25 +146,34 @@ func (joinSession *JoinSession) pushMaliciousInfo(missedPeers []uint32) {
 	log.Debug("Remaining peers in join session after updated: ", joinSession.Peers)
 }
 
+// terminate release resource and disconnect remaining peers.
+func (joinSession *JoinSession) terminate() {
+	for _, peer := range joinSession.Peers {
+		peer.Conn.Close()
+	}
+}
+
 // run checks for join session's incoming data.
 // Each peer sends data, server receives and processes data then
 // sends back peers the information for next round.
 func (joinSession *JoinSession) run() {
 	var allPkScripts [][]byte
 	missedPeers := make([]uint32, 0)
-
 	// Stop round timer
 	defer joinSession.roundTimeout.Stop()
 
-	// We use label to break for loop when join session completed.
-LOOP:
 	for {
+		if len(joinSession.Peers) == 0 {
+			log.Infof("No peer connected, session %d terminates.", joinSession.Id)
+			return
+		}
 		select {
 		case <-joinSession.roundTimeout.C:
+			joinSession.mu.Lock()
 			log.Info("Timeout.")
 			// We use timer to control whether peers send data in time.
 			// With one process of join session, server waits maximum time
-			// for client process is 30 seconds (setting in config file).
+			// for client process is 60 seconds (setting in config file).
 			// After that time, client still not send data,
 			// server will consider the client is malicious and terminate.
 			for _, peer := range joinSession.Peers {
@@ -172,7 +182,8 @@ LOOP:
 					// With state key exchange, we do not need to inform other peers,
 					// just remove and ignore this peer.
 					if len(peer.Pk) == 0 {
-						joinSession.removePeer(peer.Id)
+						missedPeers = append(missedPeers, peer.Id)
+						//joinSession.removePeer(peer.Id)
 						log.Infof("Peer id %v did not send key exchange data in time", peer.Id)
 					}
 				case StateDcExponential:
@@ -198,23 +209,43 @@ LOOP:
 						log.Infof("Peer id %v did not send signed transaction data in time", peer.Id)
 					}
 				case StateTxPublish:
-					joinSession.mu.Lock()
 					if joinSession.Publisher == peer.Id {
 						log.Infof("Peer id %v did not send the published transaction data in time", peer.Id)
 						joinSession.removePeer(peer.Id)
 
-						if len(joinSession.Peers) <= 1 {
-							// Protocol terminates fail
-
+						if len(joinSession.Peers) == 0 {
+							log.Infof("No peer connected, session %d terminates.", joinSession.Id)
+							joinSession.mu.Unlock()
+							return
 						}
-						// Select other peer to publish transaction
+						// Select other peer to publish transaction.
+						buffTx := bytes.NewBuffer(nil)
+						buffTx.Grow(joinSession.JoinedTx.SerializeSize())
+						err := joinSession.JoinedTx.BtcEncode(buffTx, 0)
+						if err != nil {
+							log.Errorf("Cannot execute BtcEncode: %v", err)
+							joinSession.terminate()
+							joinSession.mu.Unlock()
+							return
+						}
+
+						joinTx := &pb.JoinTx{}
+						joinTx.Tx = buffTx.Bytes()
+						joinTxData, err := proto.Marshal(joinTx)
+						if err != nil {
+							log.Errorf("Can not marshal signed transaction: %v", err)
+							log.Infof("Session terminates fail")
+							joinSession.terminate()
+							joinSession.mu.Unlock()
+							return
+						}
+						joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, joinTxData)
 						pubId := joinSession.randomPublisher()
 						joinSession.Publisher = pubId
-						joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, []byte{0x00})
-						peer.writeChan <- joinTxMsg.ToBytes()
+						publisher := joinSession.Peers[pubId]
+						publisher.writeChan <- joinTxMsg.ToBytes()
 						joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 					}
-					joinSession.mu.Unlock()
 				case StateRevealSecret:
 					if len(peer.Vk) == 0 {
 						missedPeers = append(missedPeers, peer.Id)
@@ -225,10 +256,17 @@ LOOP:
 
 			// Inform to remaining peers in join session.
 			if len(missedPeers) > 0 {
-				joinSession.pushMaliciousInfo(missedPeers)
-				// Reset join session state.
-				joinSession.State = StateKeyExchange
+				if joinSession.State == StateKeyExchange {
+					for _, id := range missedPeers {
+						joinSession.removePeer(id)
+					}
+				} else {
+					joinSession.pushMaliciousInfo(missedPeers)
+					// Reset join session state.
+					joinSession.State = StateKeyExchange
+				}
 			}
+			joinSession.mu.Unlock()
 		case keyExchange := <-joinSession.keyExchangeChan:
 			joinSession.mu.Lock()
 			peer := joinSession.Peers[keyExchange.PeerId]
@@ -264,7 +302,10 @@ LOOP:
 				data, err := proto.Marshal(keyex)
 				if err != nil {
 					log.Errorf("Can not marshal keyexchange: %v", err)
-					break
+					// Public key is invalid
+					joinSession.removePeer(keyExchange.PeerId)
+					joinSession.mu.Unlock()
+					continue
 				}
 
 				message := messages.NewMessage(messages.S_KEY_EXCHANGE, data)
@@ -292,7 +333,6 @@ LOOP:
 			}
 
 			peerInfo.DcExpVector = vector
-
 			log.Debug("Received dc-net exponential from peer", peerInfo.Id)
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
@@ -356,7 +396,8 @@ LOOP:
 				data, err := proto.Marshal(msgData)
 				if err != nil {
 					log.Errorf("Can not marshal all messages data: %v", err)
-					break
+					joinSession.terminate()
+					return
 				}
 
 				msg := messages.NewMessage(messages.S_DC_EXP_VECTOR, data)
@@ -430,7 +471,7 @@ LOOP:
 					log.Errorf("Can not marshal DcXorVectorResult: %v", err)
 				}
 
-				log.Debug("Has solved dc-net xor vector and got all pkscripts")
+				log.Debug("Solved dc-net xor vector and got all pkscripts")
 				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 				joinSession.State = StateTxInput
 				message := messages.NewMessage(messages.S_DC_XOR_VECTOR, dcXorData)
@@ -459,7 +500,7 @@ LOOP:
 			}
 			peer.TxIns = &tx
 
-			log.Debugf("Received txin from peer %d, number txin :%d, number txout :%d", peer.Id, len(tx.TxIn), len(tx.TxOut))
+			log.Debugf("Received transaction input from peer %d, number txin :%d, number txout :%d", peer.Id, len(tx.TxIn), len(tx.TxOut))
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if peer.TxIns == nil {
@@ -490,6 +531,8 @@ LOOP:
 						}
 					}
 				}
+
+				log.Debug("Server creates transaction outputs from pkscript resolved from dc-net xor.")
 				for _, msg := range allPkScripts {
 					txout := wire.NewTxOut(peer.TicketPrice, msg)
 					joinedtx.AddTxOut(txout)
@@ -508,13 +551,13 @@ LOOP:
 				joinTx.Tx = buffTx.Bytes()
 				joinTxData, err := proto.Marshal(joinTx)
 				if err != nil {
-
+					log.Errorf("Can not marshal transaction: %v", err)
 				}
 				joinTxMsg := messages.NewMessage(messages.S_JOINED_TX, joinTxData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- joinTxMsg.ToBytes()
 				}
-				log.Debug("Broadcast joined tx to all peers")
+				log.Debug("Broadcast the join transaction to all peers")
 				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 				joinSession.State = StateTxSign
 			}
@@ -534,14 +577,17 @@ LOOP:
 			reader := bytes.NewReader(signedTx.Tx)
 			err := tx.BtcDecode(reader, 0)
 			if err != nil {
-
+				log.Errorf("Can not decode transaction: %v", err)
+				log.Infof("Session %d terminates fail", joinSession.Id)
+				go joinSession.terminate()
+				return
 			}
 			if peer.SignedTx != nil {
 				joinSession.mu.Unlock()
 				continue
 			}
 			peer.SignedTx = &tx
-			log.Debug("Received signed tx from peer", peer.Id)
+			log.Debug("Received signed transaction from peer", peer.Id)
 
 			// Join signed transaction from each peer to one transaction.
 			if joinSession.JoinedTx == nil {
@@ -563,35 +609,37 @@ LOOP:
 				// Send the joined transaction to all peer in join session.
 				// Random select peer to publish transaction.
 				// TODO: publish transaction from server
-				log.Info("Merged signed tx from all peers")
+				log.Info("Merged signed transaction from all peers")
+
 				buffTx := bytes.NewBuffer(nil)
 				buffTx.Grow(joinSession.JoinedTx.SerializeSize())
 
 				err := joinSession.JoinedTx.BtcEncode(buffTx, 0)
 				if err != nil {
 					log.Errorf("Cannot execute BtcEncode: %v", err)
-					break
+					log.Infof("Session %d terminates fail", joinSession.Id)
+					go joinSession.terminate()
+					return
 				}
 
 				joinTx := &pb.JoinTx{}
 				joinTx.Tx = buffTx.Bytes()
 				joinTxData, err := proto.Marshal(joinTx)
 				if err != nil {
+					log.Errorf("Can not marshal signed transaction: %v", err)
+					log.Infof("Session %d terminates fail", joinSession.Id)
+					go joinSession.terminate()
+					return
+				}
 
-				}
-				publisher := rand.Intn(len(joinSession.Peers))
+				log.Debugf("Size of joinTx.Tx: %d", len(joinTx.Tx))
 				joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, joinTxData)
-				n := 0
-				for _, peer := range joinSession.Peers {
-					if n == publisher {
-						peer.Publisher = true
-						log.Infof("Peer %d is randomly selected to publish tx %s", peer.Id, joinSession.JoinedTx.TxHash().String())
-						joinSession.Publisher = peer.Id
-						peer.writeChan <- joinTxMsg.ToBytes()
-						break
-					}
-					n++
-				}
+
+				pubId := joinSession.randomPublisher()
+				joinSession.Publisher = pubId
+				publisher := joinSession.Peers[pubId]
+				log.Infof("Peer %d is randomly selected to publish transaction %s", pubId, joinSession.JoinedTx.TxHash().String())
+				publisher.writeChan <- joinTxMsg.ToBytes()
 				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut/3))
 				joinSession.State = StateTxPublish
 			}
@@ -605,9 +653,9 @@ LOOP:
 			}
 			joinSession.State = StateCompleted
 			joinSession.mu.Unlock()
-			log.Info("Broadcast published tx to all peers")
-			// Need to break for loop to terminate the join session
-			break LOOP
+			log.Info("Broadcast the join transaction to all peers")
+			log.Infof("Session %d terminates successfully", joinSession.Id)
+			return
 		case rvSecret := <-joinSession.revealSecretChan:
 			// Save verify key
 			joinSession.mu.Lock()
@@ -960,7 +1008,7 @@ LOOP:
 			joinSession.mu.Unlock()
 		}
 	}
-	log.Infof("Session %d terminates sucessfully", joinSession.Id)
+
 }
 
 // randomPublisher selects random peer to publish transaction

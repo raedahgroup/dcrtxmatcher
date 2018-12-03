@@ -18,7 +18,6 @@ import (
 )
 
 func main() {
-	//defer profile.Start(profile.MemProfile).Stop()
 	go func() {
 		http.ListenAndServe("localhost:6060", nil)
 	}()
@@ -33,7 +32,7 @@ func main() {
 }
 
 // run executes dcrtxmatcher server. Base on setting on config file
-// server uses coinshuffle++ if blind server option is enable, if not using normal coin join method.
+// server uses coinshuffle++ if blind server option is enabled, if not using normal coin join method.
 func run(ctx context.Context) error {
 	config, _, err := loadConfig(ctx)
 	if err != nil {
@@ -59,7 +58,6 @@ func run(ctx context.Context) error {
 		}
 		// Create websocket server
 		joinQueue := coinjoin.NewJoinQueue()
-
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			upgrader := websocket.Upgrader{
 				ReadBufferSize:  0,
@@ -83,11 +81,16 @@ func run(ctx context.Context) error {
 
 		intf := fmt.Sprintf(":%d", config.Port)
 		dcmixlog.Infof("Listening on %s", intf)
-
-		go http.ListenAndServe(intf, nil)
+		go func() {
+			err := http.ListenAndServe(intf, nil)
+			if err != nil {
+				dcmixlog.Errorf("Can not start server: %v", err)
+				os.Exit(1)
+			}
+		}()
 	}
 
-	// With normal coin join method, server known output address of all participants.
+	// With normal coin join method, the server knows the output addresses of all participants.
 	// After received transaction input and output from participants,
 	// Server swaps randomly the transaction input, output index of all participants.
 	// The joined transaction created from this then sent back to each participants to sign.
@@ -120,7 +123,13 @@ func run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		log.Infof("Listening on %s", intf)
-		go server.Serve(lis)
+		go func() {
+			err := server.Serve(lis)
+			if err != nil {
+				log.Errorf("Can not start server: %v", err)
+				os.Exit(1)
+			}
+		}()
 
 		if server != nil {
 			defer func() {

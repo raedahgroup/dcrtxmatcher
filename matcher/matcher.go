@@ -82,7 +82,7 @@ type (
 	}
 )
 
-// CheckInputsSigned returns true if all participants already sent their signed transaction input, output.
+// CheckInputsSigned returns true if all participants already sent their signed transaction input.
 func (sess *Session) CheckInputsSigned() bool {
 	for _, p := range sess.Participants {
 		if p.SignedTx == nil {
@@ -234,7 +234,7 @@ func (matcher *JoinSession) NewSessionID() SessionID {
 	return SessionID(id.String())
 }
 
-// mergeSignedInput merges signed transaction data of each participant to one.
+// mergeSignedInput merges all signed transaction data from each participant.
 func (matcher *JoinSession) mergeSignedInput(req *submitSignedTxReq) error {
 
 	if _, has := matcher.SessionData.Participants[req.sessionID]; !has {
@@ -395,7 +395,7 @@ func (matcher *JoinSession) addParticipantInput(req *submitSplitTxReq) ([]int32,
 // This includes merged transaction from all participants and participant's input and output index.
 func (matcher *JoinSession) SendTxData() {
 	log.Debug("Send the joined split transactions back to each participant")
-	// If RandomIndex option is enable, server swaps randomly both input and output index.
+	// If RandomIndex option is enabled, input and output indices are randomly swapped
 	if matcher.cfg.RandomIndex && len(matcher.SessionData.Participants) > 1 {
 
 		txInSize := len(matcher.SessionData.MergedSplitTx.TxIn)
