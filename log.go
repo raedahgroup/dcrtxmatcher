@@ -44,21 +44,21 @@ var (
 	// application shutdown.
 	logRotator *rotator.Rotator
 
-	dcmixlog = backendLog.Logger("DCMIX")
-	log      = backendLog.Logger("MATTX")
+	log = backendLog.Logger("DCMIX")
+	mtlog      = backendLog.Logger("MATTX")
 )
 
 // Initialize package-global logger variables.
 func init() {
-	coinjoin.UseLogger(dcmixlog)
-	matcher.UseLogger(log)
+	coinjoin.UseLogger(log)
+	matcher.UseLogger(mtlog)
 
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
 var subsystemLoggers = map[string]slog.Logger{
-	"DCMIX": dcmixlog,
-	"MATTX": log,
+	"DCMIX": log,
+	"MATTX": mtlog,
 }
 
 // initLogRotator initializes the logging rotater to write logs to logFile and
@@ -109,7 +109,7 @@ func setLogLevels(logLevel string) {
 // fatalf logs a message, flushes the logger, and finally exit the process with
 // a non-zero return code.
 func fatalf(format string, args ...interface{}) {
-	log.Errorf(format, args...)
+	mtlog.Errorf(format, args...)
 	os.Stdout.Sync()
 	logRotator.Close()
 	os.Exit(1)

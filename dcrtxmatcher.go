@@ -6,12 +6,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	_ "net/http/pprof"
 
 	pb "github.com/decred/dcrwallet/dcrtxclient/api/matcherrpc"
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/gorilla/websocket"
-
 	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
 	"google.golang.org/grpc"
@@ -36,7 +37,7 @@ func main() {
 func run(ctx context.Context) error {
 	config, _, err := loadConfig(ctx)
 	if err != nil {
-		log.Errorf("Can not load the config data: %v", err)
+		mtlog.Errorf("Can not load the config data: %v", err)
 		return err
 	}
 
@@ -49,15 +50,10 @@ func run(ctx context.Context) error {
 	// The flint library is a required dependency and is the method that is suggested by the
 	// authors of the coinshuffle++ paper.
 	if config.BlindServer {
-		dcmixlog.Infof("MinParticipants %d", config.MinParticipants)
-		dicemixCfg := &coinjoin.Config{
-			MinParticipants: config.MinParticipants,
-			RandomIndex:     config.RandomIndex,
-			JoinTicker:      config.JoinTicker,
-			RoundTimeOut:    config.WaitingTimer,
-		}
+		log.Infof("MinParticipants %d", config.MinParticipants)
+
 		// Create websocket server
-		joinQueue := coinjoin.NewJoinQueue()
+		joinQueue := coinjoin.NewJoinQueue(config.JoinTicker)
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			upgrader := websocket.Upgrader{
 				ReadBufferSize:  0,
@@ -65,7 +61,7 @@ func run(ctx context.Context) error {
 			}
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
-				log.Errorf("Can not upgrade from remote address %v", r.RemoteAddr)
+				mtlog.Errorf("Can not upgrade from remote address %v", r.RemoteAddr)
 				return
 			}
 
@@ -73,19 +69,30 @@ func run(ctx context.Context) error {
 			peer := coinjoin.NewPeer(conn)
 			peer.IPAddr = r.RemoteAddr
 
-			joinQueue.NewPeerChan <- peer
+			joinQueue.AddNewPeer(peer)
+			if len(joinQueue.Peers) >= config.MinParticipants {
+				if !joinQueue.WillStart {
+					timeStartJoin := time.Now().Add(time.Second * time.Duration(120))
+					mtlog.Info("Will start join session at", util.GetTimeString(timeStartJoin))
+					joinQueue.WillStart = true
+
+					cfg := coinjoin.Config{JoinTicker: config.JoinTicker, RoundTimeOut: config.WaitingTimer, MinParticipants: config.MinParticipants}
+					go joinQueue.Run(cfg)
+				}
+			}
 		})
 
-		diceMix := coinjoin.NewDiceMix(dicemixCfg)
-		go diceMix.Run(joinQueue)
+		if done(ctx) {
+			return ctx.Err()
+		}
 
 		intf := fmt.Sprintf(":%d", config.Port)
-		dcmixlog.Infof("Listening on %s", intf)
+		log.Infof("Listening on %s", intf)
 		go func() {
 			err := http.ListenAndServe(intf, nil)
 			if err != nil {
-				dcmixlog.Errorf("Can not start server: %v", err)
-				os.Exit(1)
+				log.Errorf("Can not start server: %v", err)
+				return
 			}
 		}()
 	}
@@ -107,7 +114,7 @@ func run(ctx context.Context) error {
 		intf := fmt.Sprintf(":%d", config.Port)
 		lis, err := net.Listen("tcp", intf)
 		if err != nil {
-			log.Errorf("Error listening: %v", err)
+			mtlog.Errorf("Error listening: %v", err)
 			return err
 		}
 
@@ -122,28 +129,28 @@ func run(ctx context.Context) error {
 		if done(ctx) {
 			return ctx.Err()
 		}
-		log.Infof("Listening on %s", intf)
+		mtlog.Infof("Listening on %s", intf)
 		go func() {
 			err := server.Serve(lis)
 			if err != nil {
-				log.Errorf("Can not start server: %v", err)
+				mtlog.Errorf("Can not start server: %v", err)
 				os.Exit(1)
 			}
 		}()
 
 		if server != nil {
 			defer func() {
-				log.Info("Stop Grpc server...")
+				mtlog.Info("Stop Grpc server...")
 				server.Stop()
-				log.Info("Grpc server stops")
+				mtlog.Info("Grpc server stops")
 			}()
 		}
 
 		if ticketJoiner != nil {
 			defer func() {
-				log.Info("Stop Ticket joiner...")
+				mtlog.Info("Stop Ticket joiner...")
 				ticketJoiner.Stop(config.CompleteJoin)
-				log.Info("Ticket joiner stops")
+				mtlog.Info("Ticket joiner stops")
 			}()
 		}
 	}

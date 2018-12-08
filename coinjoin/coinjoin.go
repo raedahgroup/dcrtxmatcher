@@ -36,10 +36,9 @@ type (
 		JoinQueue   *JoinQueue
 		Pk          []byte
 		Vk          []byte
-		//SharedKey          []byte
-		IPAddr    string
-		cmd       int
-		writeChan chan []byte
+		IPAddr      string
+		cmd         int
+		writeChan   chan []byte
 
 		// Peer number of pkscripts ~ number of tickets purchase
 		NumMsg uint32
@@ -97,6 +96,8 @@ type (
 		mu          sync.Mutex
 		Peers       map[uint32]*PeerInfo
 		NewPeerChan chan *PeerInfo
+		Timeout     *time.Timer
+		WillStart   bool
 	}
 
 	DiceMix struct {
@@ -202,8 +203,53 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 	}
 }
 
+// Run does join transaction in every 2 minutes (setting in config file).
+// If there is enough peers for join transaction, creates new join session.
+func (joinQueue *JoinQueue) Run(cfg Config) {
+	time.Sleep(time.Second * time.Duration(cfg.JoinTicker))
+	queueSize := len(joinQueue.Peers)
+	if queueSize < cfg.MinParticipants {
+		return
+	}
+
+	joinQueue.mu.Lock()
+	sessionId := GenId()
+	joinSession := NewJoinSession(sessionId, cfg.RoundTimeOut)
+	log.Infof("Start coin join transaction - sessionId %v", sessionId)
+
+	for id, peer := range joinQueue.Peers {
+		peer.SessionId = sessionId
+		joinSession.Peers[id] = peer
+		peer.JoinQueue = nil
+		peer.JoinSession = joinSession
+
+		coinJoinRes := &pb.CoinJoinRes{
+			PeerId:    peer.Id,
+			SessionId: peer.SessionId,
+		}
+
+		data, err := proto.Marshal(coinJoinRes)
+		if err != nil {
+			log.Errorf("Can not marshal coinJoinRes: %v", err)
+			break
+		}
+
+		message := messages.NewMessage(messages.S_JOIN_RESPONSE, data)
+		peer.writeChan <- message.ToBytes()
+	}
+
+	// Init new queue for next incoming peers
+	joinQueue.Peers = make(map[uint32]*PeerInfo)
+	joinQueue.WillStart = false
+	joinQueue.mu.Unlock()
+
+	// Run the join session
+	joinSession.Config = &Config{RoundTimeOut: cfg.RoundTimeOut}
+	go joinSession.run()
+}
+
 // NewJoinQueue creates new join queue.
-func NewJoinQueue() *JoinQueue {
+func NewJoinQueue(joinTicker int) *JoinQueue {
 	return &JoinQueue{
 		Peers:       make(map[uint32]*PeerInfo),
 		NewPeerChan: make(chan *PeerInfo),
@@ -213,14 +259,9 @@ func NewJoinQueue() *JoinQueue {
 // NewDiceMix returns new dicemix struct with the given config.
 func NewDiceMix(config *Config) *DiceMix {
 
-	// Log time will start join transaction
-	//timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
-	//log.Info("Will start join session at", util.GetTimeString(timeStartJoin))
-
 	return &DiceMix{
-		config:        config,
-		Sessions:      make(map[uint32]*JoinSession),
-		sessionTicker: time.NewTicker(time.Second * time.Duration(config.JoinTicker)),
+		config:   config,
+		Sessions: make(map[uint32]*JoinSession),
 	}
 }
 
@@ -378,7 +419,7 @@ func (peer *PeerInfo) ReadMessages() {
 							peer.JoinSession.removePeer(peer.Id)
 							if len(peer.JoinSession.Peers) == 0 {
 								// Terminates fail
-								log.Warnf("All peers disconnected at StatePublish. Session %d terminates fail.", peer.JoinSession.Id)
+								//log.Warnf("All peers disconnected at StatePublish. Session %d terminates fail.", peer.JoinSession.Id)
 								peer.JoinSession.mu.Unlock()
 								return
 							}
@@ -566,7 +607,7 @@ func (peer *PeerInfo) ReadMessages() {
 					peer.JoinSession.getStateString(), peer.Id)
 				continue
 			}
-			if peer.JoinSession.findMalicious {
+			if peer.JoinSession.maliciousFinding {
 				continue
 			}
 			msg := &pb.MsgNotFound{}
@@ -578,7 +619,7 @@ func (peer *PeerInfo) ReadMessages() {
 			}
 
 			msg.PeerId = peer.Id
-			peer.JoinSession.findMalicious = true
+			peer.JoinSession.maliciousFinding = true
 			peer.JoinSession.mu.Unlock()
 			peer.JoinSession.msgNotFoundChan <- *msg
 		default:

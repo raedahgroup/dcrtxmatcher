@@ -51,9 +51,9 @@ func shutdownListener() {
 	// Listen for the initial shutdown signal
 	select {
 	case sig := <-interruptChannel:
-		log.Infof("Received signal (%s).  Shutting down...", sig)
+		mtlog.Infof("Received signal (%s).  Shutting down...", sig)
 	case <-shutdownRequestChannel:
-		log.Info("Shutdown requested.  Shutting down...")
+		mtlog.Info("Shutdown requested.  Shutting down...")
 	}
 
 	// Cancel all contexts created from withShutdownCancel.
@@ -66,6 +66,6 @@ func shutdownListener() {
 		case <-interruptChannel:
 		case <-shutdownRequestChannel:
 		}
-		log.Info("Shutdown signaled.  Already shutting down...")
+		mtlog.Info("Shutdown signaled.  Already shutting down...")
 	}
 }

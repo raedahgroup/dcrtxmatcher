@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -47,11 +48,10 @@ type (
 		State    int
 		TotalMsg int
 
-		PeersMsgInfo []*pb.PeerInfo
-		JoinedTx     *wire.MsgTx
-		Publisher    uint32
-
-		findMalicious bool
+		PeersMsgInfo     []*pb.PeerInfo
+		JoinedTx         *wire.MsgTx
+		Publisher        uint32
+		maliciousFinding bool
 
 		keyExchangeChan     chan pb.KeyExchangeReq
 		dcExpVectorChan     chan pb.DcExpVector
@@ -159,9 +159,10 @@ func (joinSession *JoinSession) terminate() {
 func (joinSession *JoinSession) run() {
 	var allPkScripts [][]byte
 	missedPeers := make([]uint32, 0)
+	var errm error
 	// Stop round timer
 	defer joinSession.roundTimeout.Stop()
-
+LOOP:
 	for {
 		if len(joinSession.Peers) == 0 {
 			log.Infof("No peer connected, session %d terminates.", joinSession.Id)
@@ -171,11 +172,11 @@ func (joinSession *JoinSession) run() {
 		case <-joinSession.roundTimeout.C:
 			joinSession.mu.Lock()
 			log.Info("Timeout.")
-			// We use timer to control whether peers send data in time.
-			// With one process of join session, server waits maximum time
+			// We use timer to control whether peers send data of round in time.
+			// With one round of the join session, server waits maximum time
 			// for client process is 60 seconds (setting in config file).
 			// After that time, client still not send data,
-			// server will consider the client is malicious and terminate.
+			// server will consider the client is malicious and remove from the join session.
 			for _, peer := range joinSession.Peers {
 				switch joinSession.State {
 				case StateKeyExchange:
@@ -290,11 +291,14 @@ func (joinSession *JoinSession) run() {
 			peer.NumMsg = keyExchange.NumMsg
 			joinSession.PeersMsgInfo = append(joinSession.PeersMsgInfo, &pb.PeerInfo{PeerId: peer.Id, Pk: peer.Pk, NumMsg: keyExchange.NumMsg})
 
-			log.Debug("Received key exchange request from peer", peer.Id)
+			log.Debug("Received Diffie Hellman public key exchange request from peer", peer.Id)
 
 			// Broadcast to all peers when there are enough public keys.
 			if len(joinSession.Peers) == len(joinSession.PeersMsgInfo) {
-				log.Debug("All peers have sent public key, broadcast all public keys to peers")
+
+				log.Debug("All peers have sent Diffie Hellman public key, broadcast all public keys to peers")
+				log.Debug("Each peer will combine Diffie Hellman private key and other's public key to generate random bytes")
+				log.Debug("The random bytes will be used for creating padding in dc-net")
 				keyex := &pb.KeyExchangeRes{
 					Peers: joinSession.PeersMsgInfo,
 				}
@@ -324,12 +328,30 @@ func (joinSession *JoinSession) run() {
 				joinSession.mu.Unlock()
 				continue
 			}
+			if len(data.Vector) < messages.PkScriptHashSize*2 {
+				// Invalid dcxor vector length.
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
+				break LOOP
+			}
 			vector := make([]field.Field, 0)
 			for i := 0; i < int(data.Len); i++ {
 				b := data.Vector[i*messages.PkScriptHashSize : (i+1)*messages.PkScriptHashSize]
 				ff := field.NewFF(field.FromBytes(b))
+				// Validate pkscript hash
+				if ff.N.Compare(field.Uint128{0, 0}) == 0 {
+					errMsg := fmt.Sprintf("Client %d submitted invalid pkscript hash %s", peerInfo.Id, ff.HexStr())
+					errm = errors.New(errMsg)
+					log.Warnf(errMsg)
+					break
+				}
 				vector = append(vector, ff)
 				//log.Debugf("Received dc-net exp vector %d - %x", peerInfo.Id, b)
+			}
+			if errm != nil {
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{peerInfo.Id})
+				continue
 			}
 
 			peerInfo.DcExpVector = vector
@@ -386,8 +408,15 @@ func (joinSession *JoinSession) run() {
 					if len(bytes) == messages.PkScriptHashSize {
 						allMsgHash = append(allMsgHash, bytes...)
 					} else {
-						log.Warnf("Got pkscript hash from flint with size %d - %x", len(bytes), bytes)
+						errMsg := fmt.Sprintf("Got pkscript hash from flint with size %d - %x. This differs with default size: %d",
+							len(bytes), bytes, messages.PkScriptHashSize)
+						log.Warnf(errMsg)
+						errm = errors.New(errMsg)
+						break
 					}
+				}
+				if errm != nil {
+					break LOOP
 				}
 
 				msgData := &pb.AllMessages{}
@@ -396,8 +425,8 @@ func (joinSession *JoinSession) run() {
 				data, err := proto.Marshal(msgData)
 				if err != nil {
 					log.Errorf("Can not marshal all messages data: %v", err)
-					joinSession.terminate()
-					return
+					errm = err
+					break LOOP
 				}
 
 				msg := messages.NewMessage(messages.S_DC_EXP_VECTOR, data)
@@ -408,11 +437,15 @@ func (joinSession *JoinSession) run() {
 				joinSession.State = StateDcXor
 			}
 			joinSession.mu.Unlock()
-			//			log.Debug("Sleep 15 sec for stop one client")
-			//			time.Sleep(time.Duration(6 * time.Second))
 		case data := <-joinSession.dcXorVectorChan:
 			joinSession.mu.Lock()
 			dcXor := make([][]byte, 0)
+			if len(data.Vector) < messages.PkScriptSize*2 {
+				// Invalid dcxor vector length.
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{data.PeerId})
+				break LOOP
+			}
 			for i := 0; i < int(data.Len); i++ {
 				msg := data.Vector[i*messages.PkScriptSize : (i+1)*messages.PkScriptSize]
 				dcXor = append(dcXor, msg)
@@ -469,6 +502,8 @@ func (joinSession *JoinSession) run() {
 				dcXorData, err := proto.Marshal(dcXorRet)
 				if err != nil {
 					log.Errorf("Can not marshal DcXorVectorResult: %v", err)
+					errm = err
+					break LOOP
 				}
 
 				log.Debug("Solved dc-net xor vector and got all pkscripts")
@@ -491,12 +526,22 @@ func (joinSession *JoinSession) run() {
 			// Server will use the ticket price that sent by each peer to construct the join transaction.
 			peer.TicketPrice = txins.TicketPrice
 
+			// Validate ticket price
+			if peer.TicketPrice <= 0 {
+				errMsg := fmt.Sprintf("Peer %d sent invalid ticket price: %d", peer.Id, peer.TicketPrice)
+				log.Warnf(errMsg)
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{peer.Id})
+				break LOOP
+			}
+
 			var tx wire.MsgTx
 			buf := bytes.NewReader(txins.Txins)
 			err := tx.BtcDecode(buf, 0)
 			if err != nil {
 				log.Errorf("error BtcDecode %v", err)
-				break
+				errm = err
+				break LOOP
 			}
 			peer.TxIns = &tx
 
@@ -514,7 +559,7 @@ func (joinSession *JoinSession) run() {
 			// Combine with transaction input from peer, we can build unsigned transaction.
 			var joinedtx *wire.MsgTx
 			if allSubmit {
-				log.Debug("All peers sent txin, will create join tx for signing")
+				log.Debug("All peers sent txin and txout change amount, will create join tx for signing")
 				for _, peer := range joinSession.Peers {
 					if joinedtx == nil {
 						joinedtx = peer.TxIns
@@ -532,7 +577,6 @@ func (joinSession *JoinSession) run() {
 					}
 				}
 
-				log.Debug("Server creates transaction outputs from pkscript resolved from dc-net xor.")
 				for _, msg := range allPkScripts {
 					txout := wire.NewTxOut(peer.TicketPrice, msg)
 					joinedtx.AddTxOut(txout)
@@ -544,7 +588,8 @@ func (joinSession *JoinSession) run() {
 				err := joinedtx.BtcEncode(buffTx, 0)
 				if err != nil {
 					log.Errorf("error BtcEncode %v", err)
-					break
+					errm = err
+					break LOOP
 				}
 
 				joinTx := &pb.JoinTx{}
@@ -552,11 +597,14 @@ func (joinSession *JoinSession) run() {
 				joinTxData, err := proto.Marshal(joinTx)
 				if err != nil {
 					log.Errorf("Can not marshal transaction: %v", err)
+					errm = err
+					break LOOP
 				}
 				joinTxMsg := messages.NewMessage(messages.S_JOINED_TX, joinTxData)
 				for _, peer := range joinSession.Peers {
 					peer.writeChan <- joinTxMsg.ToBytes()
 				}
+				log.Debug("Server built join tx from txin that just received, txout is created from the resolved pkscripts and ticket price")
 				log.Debug("Broadcast the join transaction to all peers")
 				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 				joinSession.State = StateTxSign
@@ -579,8 +627,8 @@ func (joinSession *JoinSession) run() {
 			if err != nil {
 				log.Errorf("Can not decode transaction: %v", err)
 				log.Infof("Session %d terminates fail", joinSession.Id)
-				go joinSession.terminate()
-				return
+				errm = err
+				break LOOP
 			}
 			if peer.SignedTx != nil {
 				joinSession.mu.Unlock()
@@ -618,8 +666,8 @@ func (joinSession *JoinSession) run() {
 				if err != nil {
 					log.Errorf("Cannot execute BtcEncode: %v", err)
 					log.Infof("Session %d terminates fail", joinSession.Id)
-					go joinSession.terminate()
-					return
+					errm = err
+					break LOOP
 				}
 
 				joinTx := &pb.JoinTx{}
@@ -628,13 +676,11 @@ func (joinSession *JoinSession) run() {
 				if err != nil {
 					log.Errorf("Can not marshal signed transaction: %v", err)
 					log.Infof("Session %d terminates fail", joinSession.Id)
-					go joinSession.terminate()
-					return
+					errm = err
+					break LOOP
 				}
 
-				log.Debugf("Size of joinTx.Tx: %d", len(joinTx.Tx))
 				joinTxMsg := messages.NewMessage(messages.S_TX_SIGN, joinTxData)
-
 				pubId := joinSession.randomPublisher()
 				joinSession.Publisher = pubId
 				publisher := joinSession.Peers[pubId]
@@ -655,7 +701,7 @@ func (joinSession *JoinSession) run() {
 			joinSession.mu.Unlock()
 			log.Info("Broadcast the join transaction to all peers")
 			log.Infof("Session %d terminates successfully", joinSession.Id)
-			return
+			break LOOP
 		case rvSecret := <-joinSession.revealSecretChan:
 			// Save verify key
 			joinSession.mu.Lock()
@@ -696,13 +742,18 @@ func (joinSession *JoinSession) run() {
 						// Generate shared key with other peer from peer's private key and other peer's public key
 						sharedKey, err := ecp256.GenSharedSecret32(pVk, opPk)
 						if err != nil {
-							log.Errorf("Can not generate shared secret key: %v", err)
-							//return nil, err
+							errMsg := fmt.Sprintf("Can not generate shared secret key: %v", err)
+							log.Errorf(errMsg)
+							errm = errors.New(errMsg)
+							break
 						}
 
 						opeerInfo.SharedKey = sharedKey
 						opeerInfo.Id = op.Id
 						replayPeer[op.Id] = opeerInfo
+					}
+					if errm != nil {
+						break LOOP
 					}
 					replayPeers[p.Id] = replayPeer
 					joinSession.TotalMsg += int(p.NumMsg)
@@ -760,7 +811,11 @@ func (joinSession *JoinSession) run() {
 					for opid, opInfo := range replayPeer {
 						dcexpRng, err := chacharng.RandBytes(opInfo.SharedKey, messages.ExpRandSize)
 						if err != nil {
-							//return nil, errors.E(op, err)
+							if err != nil {
+								log.Errorf("Can generate random bytes: %v", err)
+								errm = err
+								break LOOP
+							}
 						}
 						dcexpRng = append([]byte{0, 0, 0, 0}, dcexpRng...)
 
@@ -983,7 +1038,7 @@ func (joinSession *JoinSession) run() {
 					log.Debugf("End check dc-xor")
 				}
 			}
-			joinSession.findMalicious = false
+			joinSession.maliciousFinding = false
 			joinSession.mu.Unlock()
 
 			if len(maliciousIds) > 0 {
@@ -1007,6 +1062,11 @@ func (joinSession *JoinSession) run() {
 			joinSession.State = StateRevealSecret
 			joinSession.mu.Unlock()
 		}
+	}
+	if errm != nil {
+		log.Errorf("Session %d terminate fail with error %v", errm)
+		joinSession.mu.Unlock()
+		joinSession.terminate()
 	}
 
 }

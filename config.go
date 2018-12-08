@@ -290,7 +290,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 	// but cannot be found.
 	if configFileError != nil && cfg.ConfigFile.ExplicitlySet() {
 		if preCfg.ConfigFile.ExplicitlySet() || cfg.ConfigFile.ExplicitlySet() {
-			log.Errorf("%v", configFileError)
+			mtlog.Errorf("%v", configFileError)
 			return loadConfigError(configFileError)
 		}
 	}
@@ -299,7 +299,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 	// succeeds.  This prevents the warning on help messages and invalid
 	// options.
 	if configFileError != nil {
-		log.Warnf("%v", configFileError)
+		mtlog.Warnf("%v", configFileError)
 	}
 
 	return &cfg, remainingArgs, nil

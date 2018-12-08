@@ -37,7 +37,7 @@ func (svc *SplitTxMatcherService) FindMatches(ctx context.Context, req *pb.FindM
 	// Get meta data of peer from context.
 	// We need only the ip address.
 	clientInfo, _ := peer.FromContext(ctx)
-	log.Infof("SessionID %v - %v connected", sessID, clientInfo.Addr.String())
+	mtlog.Infof("SessionID %v - %v connected", sessID, clientInfo.Addr.String())
 
 	done := make(chan bool)
 
@@ -96,7 +96,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 		ticket, inputIds, outputIds, err = joinSession.SubmitSplitTx(matcher.SessionID(req.SessionId), splitTx,
 			int(0), nil)
 		if err != nil {
-			log.Debugf("Can not submit join transaction: %v", err)
+			mtlog.Debugf("Can not submit join transaction: %v", err)
 			resp = nil
 			return
 		}
@@ -104,7 +104,7 @@ func (svc *SplitTxMatcherService) SubmitSplitTx(ctx context.Context, req *pb.Sub
 		buff.Grow(ticket.SerializeSize())
 		err = ticket.BtcEncode(buff, 0)
 		if err != nil {
-			log.Errorf("Can not encode buffer transaction: %v ", err)
+			mtlog.Errorf("Can not encode buffer transaction: %v ", err)
 			resp = nil
 			return
 		}
@@ -155,7 +155,7 @@ func (svc *SplitTxMatcherService) SubmitSignedTransaction(ctx context.Context, r
 
 		ticket, publisher, err := joinSession.SubmitSignedTx(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
-			log.Errorf("Can not submit signed transaction: %v ", err)
+			mtlog.Errorf("Can not submit signed transaction: %v ", err)
 			errn = err
 			return
 		}
@@ -211,7 +211,7 @@ func (svc *SplitTxMatcherService) PublishResult(ctx context.Context, req *pb.Pub
 
 		publishedTx, err = joinSession.PublishResult(matcher.SessionID(req.SessionId), tx)
 		if err != nil {
-			log.Debugf("Can not execute publish result: %v", err)
+			mtlog.Debugf("Can not execute publish result: %v", err)
 			return
 		}
 
