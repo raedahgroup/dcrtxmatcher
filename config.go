@@ -34,6 +34,7 @@ const (
 	defaultWaitingTimer    = 60
 	defaultCompleteJoin    = true
 	defaultBlindServer     = true
+	defaultServerPublish   = true
 )
 
 var (
@@ -56,6 +57,7 @@ type config struct {
 	WaitingTimer    int                  `short:"t" long:"timer" description:"timeout in seconds for waiting submit data from client"`
 	CompleteJoin    bool                 `long:"completejoin" description:"option to decide complete join ticket is in progress or not"`
 	BlindServer     bool                 `long:"blindserver" description:"option to use dicemix or simple coinjoin method"`
+	ServerPublish   bool                 `long:"serverpublish" description:"option to publish join transaction from server or client"`
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -211,6 +213,7 @@ func loadConfig(ctx context.Context) (*config, []string, error) {
 		WaitingTimer:    defaultWaitingTimer,
 		CompleteJoin:    defaultCompleteJoin,
 		BlindServer:     defaultBlindServer,
+		ServerPublish:   defaultServerPublish,
 	}
 
 	// Pre-parse the command line options to see if an alternative config

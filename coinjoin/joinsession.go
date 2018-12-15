@@ -3,10 +3,15 @@ package coinjoin
 import (
 	"bytes"
 	"crypto/elliptic"
+	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+
 	"math/rand"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -151,6 +156,50 @@ func (joinSession *JoinSession) terminate() {
 	for _, peer := range joinSession.Peers {
 		peer.Conn.Close()
 	}
+}
+
+// publishTxHex publishes the transaction encoded in hexa via restful API with url parameter.
+// The restful API is usually dcrdata API. This func is called by publishTx.
+func publishTxHex(txHex, url string) error {
+	// Call dcrdata api endpoint to publish tx.
+	jsonData := map[string]interface{}{
+		"rawtx": txHex,
+	}
+
+	jsonBytes, err := json.Marshal(jsonData)
+	if err != nil {
+		log.Errorf("Can not Marshal json data %v", err)
+		return err
+	}
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		log.Errorf("Can not Post json data %v", err)
+		return err
+	}
+	respBody, err := ioutil.ReadAll(resp.Body)
+
+	ret := string(respBody)
+	if !strings.Contains(ret, "txid") {
+		return errors.New("Can not publish transaction")
+	}
+
+	return nil
+}
+
+// publishTx publishes the transaction via restful API with url parameter.
+// The restful API is usually dcrdata API.
+func publishTx(ptx *wire.MsgTx, url string) error {
+
+	writer := bytes.NewBuffer(nil)
+	err := ptx.Serialize(writer)
+	if err != nil {
+		log.Errorf("Can not Serialize transaction %v", err)
+		return err
+	}
+
+	txHex := hex.EncodeToString(writer.Bytes())
+	return publishTxHex(txHex, url)
 }
 
 // run checks for join session's incoming data.
@@ -473,11 +522,11 @@ LOOP:
 			var err error = nil
 			if allSubmit {
 				log.Debug("Combine xor vector to remove padding xor and get all pkscripts hash")
-				// Base on equation: (pkscript ^ P ^ P1 ^ P2...) ^ (P ^ P1 ^ P2...) = pkscript.
-				// Each peer will send pkscript ^ P ^ P1 ^ P2... bytes to server.
-				// Server combine (xor) all dc-net xor vectors and will have pkscript ^ P ^ P1 ^ P2... ^ (P ^ P1 ^ P2...) = pkscript.
-				// But server could not know which pkscript belongs to any peer because only peer know it's slot index.
-				// And each peer only knows it's pkscript itself.
+				// Each peer will send [pkscript ^ P ^ P1 ^ P2...] bytes to server.
+				// Of these, Pi is random padding bytes between peer and peer i.
+				// Server combines all xor vectors. Thereafter it has [pkscript ^ (P ^ P1 ^ P2...) ^ (P ^ P1 ^ P2...)] = pkscript.
+				// Server can not know pkscripts belong to which peer because only a peer knows its slot index.
+				// After resolving dc-net xor, just only a peer knows its own pkscript.
 				for i := 0; i < len(peer.DcXorVector); i++ {
 					for _, peer := range joinSession.Peers {
 						allPkScripts[i], err = util.XorBytes(allPkScripts[i], peer.DcXorVector[i])
@@ -544,6 +593,37 @@ LOOP:
 				break LOOP
 			}
 			peer.TxIns = &tx
+
+			// Validate tx input
+			errValidation := false
+			var txAmount int64
+			for _, txin := range tx.TxIn {
+				if len(txin.SignatureScript) > 0 {
+					log.Errorf("Peer %d have sent tx already signed", peer.Id)
+					errm = errors.New("")
+					break
+				}
+				txAmount += txin.ValueIn
+			}
+			if errValidation {
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
+			}
+			// Validate tx amount
+			txoutAmount := tx.TxOut[0].Value + int64(peer.NumMsg)*peer.TicketPrice
+			log.Debugf("Peer %d spent txout amount %d , txin amount %d", peer.Id, txAmount, txoutAmount)
+			if txoutAmount > txAmount {
+				log.Errorf("Peer %d spent txout amount %d greater than txin amount %d", peer.Id, txAmount, txoutAmount)
+				errValidation = true
+				break
+			}
+			if errValidation {
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{peer.Id})
+				errm = nil
+				continue
+			}
 
 			log.Debugf("Received transaction input from peer %d, number txin :%d, number txout :%d", peer.Id, len(tx.TxIn), len(tx.TxOut))
 			allSubmit := true
@@ -637,6 +717,26 @@ LOOP:
 			peer.SignedTx = &tx
 			log.Debug("Received signed transaction from peer", peer.Id)
 
+			// Validate signed tx to match with previous sent txin
+			i := 0
+			errValidation := false
+			for _, idx := range peer.InputIndex {
+				if tx.TxIn[idx].ValueIn != peer.TxIns.TxIn[i].ValueIn ||
+					tx.TxIn[idx].PreviousOutPoint.Hash.String() != peer.TxIns.TxIn[i].PreviousOutPoint.Hash.String() ||
+					tx.TxIn[idx].PreviousOutPoint.Index != peer.TxIns.TxIn[i].PreviousOutPoint.Index ||
+					len(tx.TxIn[idx].SignatureScript) == 0 {
+					log.Errorf("Peer %d sent invalid signed tx data", peer.Id)
+					errValidation = true
+					break
+				}
+				i++
+			}
+			if errValidation {
+				joinSession.mu.Unlock()
+				joinSession.pushMaliciousInfo([]uint32{peer.Id})
+				continue
+			}
+
 			// Join signed transaction from each peer to one transaction.
 			if joinSession.JoinedTx == nil {
 				joinSession.JoinedTx = tx.Copy()
@@ -668,6 +768,27 @@ LOOP:
 					log.Infof("Session %d terminates fail", joinSession.Id)
 					errm = err
 					break LOOP
+				}
+
+				if joinSession.Config.ServerPublish {
+					// publish transaction from server
+					log.Infof("Will publish transaction %s from server", joinSession.JoinedTx.TxHash().String())
+					url := "https://testnet.dcrdata.org/insight/api/tx/send"
+					err := publishTx(joinSession.JoinedTx, url)
+					if err == nil {
+						msg := messages.NewMessage(messages.S_TX_PUBLISH_RESULT, buffTx.Bytes())
+						for _, peer := range joinSession.Peers {
+							peer.writeChan <- msg.ToBytes()
+						}
+						joinSession.State = StateCompleted
+						joinSession.mu.Unlock()
+						log.Info("Broadcast the join transaction to all peers")
+						log.Infof("Session %d terminates successfully", joinSession.Id)
+						break LOOP
+					} else {
+						log.Warnf("Can not publish transaction from server side %v", err)
+						log.Warnf("Will publish from client side %v", err)
+					}
 				}
 
 				joinTx := &pb.JoinTx{}
@@ -705,17 +826,15 @@ LOOP:
 		case rvSecret := <-joinSession.revealSecretChan:
 			// Save verify key
 			joinSession.mu.Lock()
-			peerInfo := joinSession.Peers[rvSecret.PeerId]
-			if peerInfo == nil {
+			peer := joinSession.Peers[rvSecret.PeerId]
+			if peer == nil {
 				joinSession.mu.Unlock()
 				log.Debug("joinSession %d does not include peer %d", joinSession.Id, rvSecret.PeerId)
 				continue
 			}
-
-			// TODO: Verify pk and vk match.
-			peerInfo.Vk = rvSecret.Vk
-			log.Debugf("Peer %d submit verify key %x", peerInfo.Id, peerInfo.Vk)
-
+			peer.Vk = rvSecret.Vk
+			log.Debugf("Peer %d submit verify key %x", peer.Id, peer.Vk)
+		
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if len(peer.Vk) == 0 {
@@ -726,8 +845,39 @@ LOOP:
 			if allSubmit {
 				// Replay all message protocol to find the malicious peers.
 				// Create peer's random bytes for dc-net exponential and dc-net xor.
-				ecp256 := ecdh.NewEllipticECDH(elliptic.P256())
 				replayPeers := make(map[uint32]map[uint32]*PeerReplayInfo, 0)
+				ecp256 := ecdh.NewEllipticECDH(elliptic.P256())
+
+				// We use simple method by generating key pair of server
+				// then compare share key with each peer.
+				for _, p := range joinSession.Peers {
+					peerPrivKey := ecp256.UnmarshalPrivateKey(p.Vk)
+					peerPubKey, _ := ecp256.Unmarshal(p.Pk)
+					serverPrivKey, serverPubKey, err := ecp256.GenerateKey(crand.Reader)
+
+					shareKey1, err := ecp256.GenSharedSecret(peerPrivKey, serverPubKey)
+					if err != nil {
+						errMsg := fmt.Sprintf("Can not generate shared secret key: %v", err)
+						log.Errorf(errMsg)
+						errm = errors.New(errMsg)
+						break
+					}
+					shareKey2, err := ecp256.GenSharedSecret(serverPrivKey, peerPubKey)
+					if err != nil {
+						errMsg := fmt.Sprintf("Can not generate shared secret key: %v", err)
+						log.Errorf(errMsg)
+						errm = errors.New(errMsg)
+						break
+					}
+
+					if bytes.Compare(shareKey1, shareKey2) != 0 {
+						maliciousIds = append(maliciousIds, p.Id)
+						log.Infof("Peer %d is malicious - sent invalid public/verify key pair", p.Id)
+					}
+				}
+				if errm != nil {
+					break LOOP
+				}
 
 				for _, p := range joinSession.Peers {
 					replayPeer := make(map[uint32]*PeerReplayInfo)
@@ -762,43 +912,43 @@ LOOP:
 				// Maintain a counter the number incorrect share key of each peer.
 				// If one peer with more than one incorrect share key then
 				// the peer is malicious.
-				compareCount := make(map[uint32]int)
-				for pid, replayPeer := range replayPeers {
-					for opid, opReplayPeer := range replayPeers {
-						if pid == opid {
-							continue
-						}
+				// compareCount := make(map[uint32]int)
+				// for pid, replayPeer := range replayPeers {
+				// 	for opid, opReplayPeer := range replayPeers {
+				// 		if pid == opid {
+				// 			continue
+				// 		}
 
-						pInfo := opReplayPeer[pid]
-						opInfo := replayPeer[opid]
-						if bytes.Compare(pInfo.SharedKey, opInfo.SharedKey) != 0 {
-							log.Debugf("compare vk %x of peer %d with vk %x of peer %d", pInfo.SharedKey, pInfo.Id, opInfo.SharedKey, opInfo.Id)
-							// Increase compare counter
-							if _, ok := compareCount[pid]; ok {
-								compareCount[pid] = compareCount[pid] + 1
-							} else {
-								compareCount[pid] = 1
-							}
+				// 		pInfo := opReplayPeer[pid]
+				// 		opInfo := replayPeer[opid]
+				// 		if bytes.Compare(pInfo.SharedKey, opInfo.SharedKey) != 0 {
+				// 			log.Debugf("compare vk %x of peer %d with vk %x of peer %d", pInfo.SharedKey, pInfo.Id, opInfo.SharedKey, opInfo.Id)
+				// 			// Increase compare counter
+				// 			if _, ok := compareCount[pid]; ok {
+				// 				compareCount[pid] = compareCount[pid] + 1
+				// 			} else {
+				// 				compareCount[pid] = 1
+				// 			}
 
-							if _, ok := compareCount[opid]; ok {
-								compareCount[opid] = compareCount[opid] + 1
-							} else {
-								compareCount[opid] = 1
-							}
-						}
-					}
-				}
+				// 			if _, ok := compareCount[opid]; ok {
+				// 				compareCount[opid] = compareCount[opid] + 1
+				// 			} else {
+				// 				compareCount[opid] = 1
+				// 			}
+				// 		}
+				// 	}
+				// }
 
-				for pid, count := range compareCount {
-					log.Debug("Peer %d, compare counter %d", pid, count)
-					// Total number checking of share key is wrong
-					// means this peer submit invalid pk/vk key pair.
-					if count >= len(joinSession.Peers)-1 {
-						// Peer is malicious
-						maliciousIds = append(maliciousIds, pid)
-						log.Infof("Peer %d is malicious - sent invalid public/verify key pair", pid)
-					}
-				}
+				// for pid, count := range compareCount {
+				// 	log.Debug("Peer %d, compare counter %d", pid, count)
+				// 	// Total number checking of share key is wrong
+				// 	// means this peer submit invalid pk/vk key pair.
+				// 	if count >= len(joinSession.Peers)-1 {
+				// 		// Peer is malicious
+				// 		maliciousIds = append(maliciousIds, pid)
+				// 		log.Infof("Peer %d is malicious - sent invalid public/verify key pair", pid)
+				// 	}
+				// }
 
 				// Share keys are correct. Check dc-net exponential and dc-net xor vector.
 				peerSlotInfos := make(map[uint32]*PeerSlotInfo, 0)

@@ -51,9 +51,13 @@ func run(ctx context.Context) error {
 	// authors of the coinshuffle++ paper.
 	if config.BlindServer {
 		log.Infof("MinParticipants %d", config.MinParticipants)
+		cfg := &coinjoin.Config{JoinTicker: config.JoinTicker, RoundTimeOut: config.WaitingTimer, MinParticipants: config.MinParticipants}
+		cfg.ServerPublish = config.ServerPublish
+		diceMix := coinjoin.NewDiceMix(cfg)
+		joinQueue := coinjoin.NewJoinQueue(config.JoinTicker)
+		go diceMix.Run(joinQueue)
 
 		// Create websocket server
-		joinQueue := coinjoin.NewJoinQueue(config.JoinTicker)
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			upgrader := websocket.Upgrader{
 				ReadBufferSize:  0,
@@ -69,15 +73,14 @@ func run(ctx context.Context) error {
 			peer := coinjoin.NewPeer(conn)
 			peer.IPAddr = r.RemoteAddr
 
-			joinQueue.AddNewPeer(peer)
-			if len(joinQueue.Peers) >= config.MinParticipants {
-				if !joinQueue.WillStart {
-					timeStartJoin := time.Now().Add(time.Second * time.Duration(120))
-					mtlog.Info("Will start join session at", util.GetTimeString(timeStartJoin))
-					joinQueue.WillStart = true
+			joinQueue.NewPeerChan <- peer
 
-					cfg := coinjoin.Config{JoinTicker: config.JoinTicker, RoundTimeOut: config.WaitingTimer, MinParticipants: config.MinParticipants}
-					go joinQueue.Run(cfg)
+			if len(joinQueue.Peers) >= config.MinParticipants {
+				if !diceMix.WillStart {
+					diceMix.WillStart = true
+					timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
+					mtlog.Info("Will start join session at", util.GetTimeString(timeStartJoin))
+					diceMix.TimerChan = time.After(time.Second * time.Duration(config.JoinTicker))
 				}
 			}
 		})
