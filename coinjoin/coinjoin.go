@@ -15,7 +15,8 @@ import (
 
 	pb "github.com/decred/dcrwallet/dcrtxclient/api/messages"
 	"github.com/decred/dcrwallet/dcrtxclient/finitefield"
-	"github.com/decred/dcrwallet/dcrtxclient/messages"	
+	"github.com/decred/dcrwallet/dcrtxclient/messages"
+	"github.com/decred/dcrwallet/dcrtxclient/util"
 )
 
 const (
@@ -145,6 +146,15 @@ func (diceMix *DiceMix) Run(joinQueue *JoinQueue) {
 		select {
 		case peer := <-joinQueue.NewPeerChan:
 			joinQueue.AddNewPeer(peer)
+
+			if len(joinQueue.Peers) >= 2 {
+				if !diceMix.WillStart {
+					diceMix.WillStart = true
+					timeStartJoin := time.Now().Add(time.Second * time.Duration(diceMix.config.JoinTicker))
+					log.Info("Will start join session at", util.GetTimeString(timeStartJoin))
+					diceMix.TimerChan = time.After(time.Second * time.Duration(diceMix.config.JoinTicker))
+				}
+			}
 		case <-diceMix.TimerChan:
 			joinQueue.mu.Lock()
 			queueSize := len(joinQueue.Peers)
@@ -199,7 +209,7 @@ func (joinQueue *JoinQueue) Run(cfg Config) {
 	joinQueue.mu.Lock()
 	time.Sleep(time.Second * time.Duration(cfg.JoinTicker))
 	queueSize := len(joinQueue.Peers)
-	if queueSize < cfg.MinParticipants {		
+	if queueSize < cfg.MinParticipants {
 		joinQueue.mu.Unlock()
 		return
 	}
@@ -230,7 +240,7 @@ func (joinQueue *JoinQueue) Run(cfg Config) {
 	}
 
 	// Init new queue for next incoming peers
-	joinQueue.Peers = make(map[uint32]*PeerInfo)	
+	joinQueue.Peers = make(map[uint32]*PeerInfo)
 	joinQueue.mu.Unlock()
 
 	// Run the join session

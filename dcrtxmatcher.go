@@ -6,12 +6,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"time"
+
+	//"time"
 
 	_ "net/http/pprof"
 
 	pb "github.com/decred/dcrwallet/dcrtxclient/api/matcherrpc"
-	"github.com/decred/dcrwallet/dcrtxclient/util"
+	//"github.com/decred/dcrwallet/dcrtxclient/util"
 	"github.com/gorilla/websocket"
 	"github.com/raedahgroup/dcrtxmatcher/coinjoin"
 	"github.com/raedahgroup/dcrtxmatcher/matcher"
@@ -72,17 +73,7 @@ func run(ctx context.Context) error {
 			// Add websocket connection to peer data.
 			peer := coinjoin.NewPeer(conn)
 			peer.IPAddr = r.RemoteAddr
-
 			joinQueue.NewPeerChan <- peer
-
-			if len(joinQueue.Peers) >= config.MinParticipants {
-				if !diceMix.WillStart {
-					diceMix.WillStart = true
-					timeStartJoin := time.Now().Add(time.Second * time.Duration(config.JoinTicker))
-					mtlog.Info("Will start join session at", util.GetTimeString(timeStartJoin))
-					diceMix.TimerChan = time.After(time.Second * time.Duration(config.JoinTicker))
-				}
-			}
 		})
 
 		if done(ctx) {

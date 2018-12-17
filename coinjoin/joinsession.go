@@ -181,7 +181,7 @@ func publishTxHex(txHex, url string) error {
 
 	ret := string(respBody)
 	if !strings.Contains(ret, "txid") {
-		return errors.New("Can not publish transaction")
+		return errors.New(ret)
 	}
 
 	return nil
@@ -345,9 +345,9 @@ LOOP:
 			// Broadcast to all peers when there are enough public keys.
 			if len(joinSession.Peers) == len(joinSession.PeersMsgInfo) {
 
-				log.Debug("All peers have sent Diffie Hellman public key, broadcast all public keys to peers")
-				log.Debug("Each peer will combine Diffie Hellman private key and other's public key to generate random bytes")
-				log.Debug("The random bytes will be used for creating padding in dc-net")
+				log.Debug("Received DH public key from all peers. Broadcasting all DH public keys to all peers.")
+				log.Debug("Each peer will combine their DH private key with the other public keys to derive the random bytes.")
+				log.Debug("Random bytes are being used to creating padding in the DC-net.")
 				keyex := &pb.KeyExchangeRes{
 					Peers: joinSession.PeersMsgInfo,
 				}
@@ -611,10 +611,13 @@ LOOP:
 				continue
 			}
 			// Validate tx amount
-			txoutAmount := tx.TxOut[0].Value + int64(peer.NumMsg)*peer.TicketPrice
-			log.Debugf("Peer %d spent txout amount %d , txin amount %d", peer.Id, txAmount, txoutAmount)
-			if txoutAmount > txAmount {
-				log.Errorf("Peer %d spent txout amount %d greater than txin amount %d", peer.Id, txAmount, txoutAmount)
+			txoutValue := (tx.TxOut[0].Value + int64(peer.NumMsg)*peer.TicketPrice)
+			var txinAmout float64 = float64(txAmount) / 100000000
+			var txoutAmount float64 = float64(txoutValue) / 100000000
+
+			log.Debugf("Peer %d sent utxo amount %f DCR, txout amount %f DCR", peer.Id, txinAmout, txoutAmount)
+			if txoutAmount > txinAmout {
+				log.Errorf("Peer %d spent utxo amount %f greater than txin amount %f", peer.Id, txoutAmount, txinAmout)
 				errValidation = true
 				break
 			}
@@ -769,28 +772,40 @@ LOOP:
 					errm = err
 					break LOOP
 				}
-
+				published := false
 				if joinSession.Config.ServerPublish {
 					// publish transaction from server
-					log.Infof("Will publish transaction %s from server", joinSession.JoinedTx.TxHash().String())
 					url := "https://testnet.dcrdata.org/insight/api/tx/send"
-					err := publishTx(joinSession.JoinedTx, url)
-					if err == nil {
-						msg := messages.NewMessage(messages.S_TX_PUBLISH_RESULT, buffTx.Bytes())
-						for _, peer := range joinSession.Peers {
-							peer.writeChan <- msg.ToBytes()
+					log.Infof("API %s will be used for publish transaction.", url)
+					cnt := 0
+					for {
+						err := publishTx(joinSession.JoinedTx, url)
+						if err == nil {
+							msg := messages.NewMessage(messages.S_TX_PUBLISH_RESULT, buffTx.Bytes())
+							for _, peer := range joinSession.Peers {
+								peer.writeChan <- msg.ToBytes()
+							}
+							joinSession.State = StateCompleted
+							joinSession.mu.Unlock()
+							log.Infof("Transaction %s was published", joinSession.JoinedTx.TxHash().String())
+							log.Info("Broadcast the joint transaction to all peers.")
+							published = true
+							break
+						} else {
+							log.Warnf("Can not publish transaction from server side: %v", err)
 						}
-						joinSession.State = StateCompleted
-						joinSession.mu.Unlock()
-						log.Info("Broadcast the join transaction to all peers")
-						log.Infof("Session %d terminates successfully", joinSession.Id)
-						break LOOP
-					} else {
-						log.Warnf("Can not publish transaction from server side %v", err)
-						log.Warnf("Will publish from client side %v", err)
+						cnt++
+						if cnt == 3 {
+							break
+						}
+						time.Sleep(time.Second * 5)
 					}
 				}
-
+				if published {
+					log.Infof("Session %d terminates successfully.", joinSession.Id)
+					break LOOP
+				}
+				log.Warnf("Will publish from client side.")
 				joinTx := &pb.JoinTx{}
 				joinTx.Tx = buffTx.Bytes()
 				joinTxData, err := proto.Marshal(joinTx)
@@ -834,7 +849,7 @@ LOOP:
 			}
 			peer.Vk = rvSecret.Vk
 			log.Debugf("Peer %d submit verify key %x", peer.Id, peer.Vk)
-		
+
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if len(peer.Vk) == 0 {
