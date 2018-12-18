@@ -5,129 +5,64 @@ Dcrtxmatcher is a coinshuffle++ server which allows decred ticket buyers to crea
 
 Within coinshuffle++, the dicemix protocol is used for the participants to exchange information. Dicemix uses the flint library to solve polynomial to get the roots and the peer's output address. The flint library is a required dependency, and is the method that is suggested by the authors of the coinshuffle++ paper.
 
-There are two options to get it working. The first is download header files and prebuilt libs. This method is quick and easy. The second is building from scratch with source download.
+##  Build instructions for OpenBSD 6.4
+```
+pkg_add -v yasm
+pkg_add -v gmake
 
-## Download header files and pre-built libs
+mpir: http://www.mpir.org
+wget http://www.mpir.org/mpir-3.0.0.tar.bz2
+tar -jxvf mpir-3.0.0.tar.bz2
+cd mpir-3.0.0
+./configure CC=clang
+make
+make check
+make install
 
-\> $ mkdir -p ~/go/src/github.com/raedahgroup
+gmp: https://gmplib.org/
+note, pkg_info -Q gmp  shows gmp-6.1.2p1, but we are staying with install from source.
+wget https://gmplib.org/download/gmp/gmp-6.1.2.tar.bz2
+tar -jxvf gmp-6.1.2.tar.bz2
+cd gmp-6.1.2
+./configure
+make
+make check
+make install
 
-\> $ cd ~/go/src/github.com/raedahgroup
+mpfr: https://www.mpfr.org
+note, pkg_info -Q mpfr  shows mpfr-3.1.5.2, but we are using latest from source.
+wget https://www.mpfr.org/mpfr-current/mpfr-4.0.1.tar.bz2
+tar -jxvf mpfr-4.0.1.tar.bz2
+cd mpfr-4.0.1
+./configure --with-gmp-include=../gmp-6.1.2 --with-gmp-lib=/usr/local/lib
+make
+make check
+make install
 
-\> $ git clone https://github.com/raedahgroup/dcrtxmatcher.git
+flint: http://www.flintlib.org
+wget http://www.flintlib.org/flint-2.5.2.tar.gz
+tar -zxvf flint-2.5.2.tar.gz
+cd flint-2.5.2
+./configure
+gmake
+#cp doesnt have a -a on openbsd
+changed  285 in Makefile from  -a to -p
+gmake install
 
-\> $ cd dcrtxmatcher
+dcrtxmatcher:
+mkdir ~/src
+cd ~/src
+git clone https://github.com/raedahgroup/dcrtxmatcher.git
 
-\> $ cp libs/usr-local-lib/* /usr/local/lib
+#as root
+cd /usr/include/
+ln -s /usr/local/include/gmp.h
+ln -s /usr/local/include/mpfr.h
 
-\> $ cp libs/usr-local-include/* /usr/local/include
+cd /usr/local/lib
+ln -s libflint.so.13.5.2 libflint.so
+ln -s libflint.so.13.5.2 libflint.so.13
 
-Finish all steps, then continue to the part to *install golang and dcrtxmatcher*
-
-## Build flint from source (suggested)
-
-#### Install software
-
-\> $ sudo apt-get update
-
-\> $ sudo apt-get install automake
-
-\> $ sudo apt-get install yasm
-
-\> $ sudo apt-get install build-essential
-
-#### Download compress libs files and build
-
-\> $ mkdir flint-build
-
-\> $ cd flint-build
-
-Building libraries
-
-#### mpir: http://www.mpir.org
-
-\> $ wget http://www.mpir.org/mpir-3.0.0.tar.bz2 
-
-\> $ tar -jxvf mpir-3.0.0.tar.bz2
-
-\> $ cd mpir-3.0.0
-
-\> $ ./configure && make
-
-\> $ make check
-
-\> $ make install
-
-#### gmp: https://gmplib.org/
-
-\> $ wget https://gmplib.org/download/gmp/gmp-6.1.2.tar.bz2
-  
-\> $ tar -jxvf gmp-6.1.2.tar.bz2
-
-\> cd ../gmp-6.1.2
-
-\> $ ./configure && make
-
-\> $ make check
-
-\> $ make install
-
-#### mpfr: https://www.mpfr.org
-
-\> $ wget https://www.mpfr.org/mpfr-current/mpfr-4.0.1.tar.bz2
-\> $ tar -jxvf mpfr-4.0.1.tar.bz2
-
-\> $ cd ../mpfr-4.0.1
-
-\> $ ./configure && make
-
-\> $ make check
-
-\> $ make install
-
-#### flint: http://www.flintlib.org
-
-open Makefile.subdirs, at line 62, replace -Wl,-r with -r 
-
-\> $ wget http://www.flintlib.org/flint-2.5.2.tar.gz
-
-\> $ tar -jxvf flint-2.5.2.tar.gz
-
-\> $ cd ../flint-2.5.2
-
-\> $ sudo ./configure --with-mpir=/usr/local/ --with-mpfr=/usr/local/ --prefix=flint
-
-\> $ make
-
-\> $ make install
-
-\> $ cp flint/lib/* /usr/local/lib
-
-\> $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
-
-\> $ source ~/.profile
-
-## Install golang and dcrtxmatcher
-
-\> $ wget https://dl.google.com/go/go1.11.linux-amd64.tar.gz
-
-\> $ sudo tar -xvf go1.11.linux-amd64.tar.gz
-
-\> $ sudo mv go /usr/local
-
-\> $ export GOROOT=/usr/local/go
-
-\> $ export GOPATH=$HOME/go
-
-\> $ export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
-
-\> $ source ~/.profile
-
-\> $ mkdir -p ~/go/src/github.com/raedahgroup
-
-\> $ cd ~/go/src/github.com/raedahgroup
-
-\> $ git clone https://github.com/raedahgroup/dcrtxmatcher.git
-
-\> $ env GO111MODULE=on go build -v
-
-\> $ ./dcrtxmatcher
+cd ~/src/dcrtxmatcher
+go build -v
+```
