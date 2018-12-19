@@ -340,7 +340,7 @@ LOOP:
 			peer.NumMsg = keyExchange.NumMsg
 			joinSession.PeersMsgInfo = append(joinSession.PeersMsgInfo, &pb.PeerInfo{PeerId: peer.Id, Pk: peer.Pk, NumMsg: keyExchange.NumMsg})
 
-			log.Debug("Received Diffie Hellman public key exchange request from peer", peer.Id)
+			log.Debug("Received DH public key exchange request from peer", peer.Id)
 
 			// Broadcast to all peers when there are enough public keys.
 			if len(joinSession.Peers) == len(joinSession.PeersMsgInfo) {
@@ -615,7 +615,9 @@ LOOP:
 			var txinAmout float64 = float64(txAmount) / 100000000
 			var txoutAmount float64 = float64(txoutValue) / 100000000
 
-			log.Debugf("Peer %d sent utxo amount %f DCR, txout amount %f DCR", peer.Id, txinAmout, txoutAmount)
+			log.Debugf("Peer %d, %d inputs (%f DCR), %d output for (%f DCR), fee (%f DCR)",
+				peer.Id, len(tx.TxIn), txinAmout, len(tx.TxOut), txoutAmount, txinAmout-txoutAmount)
+
 			if txoutAmount > txinAmout {
 				log.Errorf("Peer %d spent utxo amount %f greater than txin amount %f", peer.Id, txoutAmount, txinAmout)
 				errValidation = true
@@ -628,7 +630,6 @@ LOOP:
 				continue
 			}
 
-			log.Debugf("Received transaction input from peer %d, number txin :%d, number txout :%d", peer.Id, len(tx.TxIn), len(tx.TxOut))
 			allSubmit := true
 			for _, peer := range joinSession.Peers {
 				if peer.TxIns == nil {
@@ -688,7 +689,7 @@ LOOP:
 					peer.writeChan <- joinTxMsg.ToBytes()
 				}
 				log.Debug("Server built join tx from txin that just received, txout is created from the resolved pkscripts and ticket price")
-				log.Debug("Broadcast the join transaction to all peers")
+				log.Debug("Broadcast the joint transaction to all peers.")
 				joinSession.roundTimeout = time.NewTimer(time.Second * time.Duration(joinSession.Config.RoundTimeOut))
 				joinSession.State = StateTxSign
 			}
@@ -760,7 +761,7 @@ LOOP:
 				// Send the joined transaction to all peer in join session.
 				// Random select peer to publish transaction.
 				// TODO: publish transaction from server
-				log.Info("Merged signed transaction from all peers")
+				log.Info("Applied signatures from all peers.")
 
 				buffTx := bytes.NewBuffer(nil)
 				buffTx.Grow(joinSession.JoinedTx.SerializeSize())
@@ -776,7 +777,7 @@ LOOP:
 				if joinSession.Config.ServerPublish {
 					// publish transaction from server
 					url := "https://testnet.dcrdata.org/insight/api/tx/send"
-					log.Infof("API %s will be used for publish transaction.", url)
+					log.Infof("Will broadcast transaction via %s", url)
 					cnt := 0
 					for {
 						err := publishTx(joinSession.JoinedTx, url)
@@ -787,7 +788,7 @@ LOOP:
 							}
 							joinSession.State = StateCompleted
 							joinSession.mu.Unlock()
-							log.Infof("Transaction %s was published", joinSession.JoinedTx.TxHash().String())
+							log.Infof("Transaction %s was published.", joinSession.JoinedTx.TxHash().String())
 							log.Info("Broadcast the joint transaction to all peers.")
 							published = true
 							break
@@ -811,7 +812,7 @@ LOOP:
 				joinTxData, err := proto.Marshal(joinTx)
 				if err != nil {
 					log.Errorf("Can not marshal signed transaction: %v", err)
-					log.Infof("Session %d terminates fail", joinSession.Id)
+					log.Infof("Session %d terminates fail.", joinSession.Id)
 					errm = err
 					break LOOP
 				}
@@ -835,8 +836,8 @@ LOOP:
 			}
 			joinSession.State = StateCompleted
 			joinSession.mu.Unlock()
-			log.Info("Broadcast the join transaction to all peers")
-			log.Infof("Session %d terminates successfully", joinSession.Id)
+			log.Info("Broadcast the join transaction to all peers.")
+			log.Infof("Session %d terminates successfully.", joinSession.Id)
 			break LOOP
 		case rvSecret := <-joinSession.revealSecretChan:
 			// Save verify key
@@ -887,7 +888,7 @@ LOOP:
 
 					if bytes.Compare(shareKey1, shareKey2) != 0 {
 						maliciousIds = append(maliciousIds, p.Id)
-						log.Infof("Peer %d is malicious - sent invalid public/verify key pair", p.Id)
+						log.Infof("Peer %d is malicious - sent invalid public/verify key pair.", p.Id)
 					}
 				}
 				if errm != nil {
@@ -987,7 +988,11 @@ LOOP:
 						// For random byte of Xor vector, we get the same size of pkscript is 25 bytes
 						dcXorRng, err := chacharng.RandBytes(opInfo.SharedKey, messages.PkScriptSize)
 						if err != nil {
-							//return nil, err
+							if err != nil {
+								log.Errorf("Can generate random bytes: %v", err)
+								errm = err
+								break LOOP
+							}
 						}
 
 						padding := field.NewFF(field.FromBytes(dcexpRng))

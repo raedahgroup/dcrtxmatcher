@@ -3,6 +3,7 @@ package coinjoin
 import (
 	"bytes"
 	"crypto/rand"
+	"strings"
 
 	"math/big"
 	mrand "math/rand"
@@ -395,9 +396,17 @@ func (peer *PeerInfo) ReadMessages() {
 				peer.JoinSession.mu.Lock()
 				// Peer may disconnected, remove from join session.
 				if peer.JoinSession.State != StateCompleted {
-					log.Infof("Peer %d disconnected at session state %s with error %v", peer.Id, peer.JoinSession.getStateString(), err)
+					if strings.Contains(err.Error(), "EOF") {
+						log.Infof("Peer %d disconnected from client with joint session state %s.", peer.Id, peer.JoinSession.getStateString())
+					} else {
+						log.Errorf("Peer %d disconnected at joint session state %s: %v.", peer.Id, err, peer.JoinSession.getStateString())
+					}
 				} else {
-					log.Infof("Peer %v disconnected", peer.Id)
+					if strings.Contains(err.Error(), "EOF") {
+						log.Infof("Peer %d disconnected from client.", peer.Id)
+					} else {
+						log.Errorf("Peer %d disconnected: %v.", peer.Id, err)
+					}
 				}
 
 				switch peer.JoinSession.State {
@@ -456,8 +465,13 @@ func (peer *PeerInfo) ReadMessages() {
 				}
 				peer.JoinSession.mu.Unlock()
 			} else {
+				if strings.Contains(err.Error(), "EOF") {
+					log.Infof("Peer %d disconnected from client.", peer.Id)
+				} else {
+					log.Errorf("Peer %d disconnected %v.", peer.Id, err)
+				}
 				peer.JoinQueue.RemovePeer(peer)
-				log.Infof("Peer %d disconnected", peer.Id)
+
 			}
 			return
 		}

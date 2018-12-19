@@ -86,7 +86,7 @@ func run(ctx context.Context) error {
 			err := http.ListenAndServe(intf, nil)
 			if err != nil {
 				log.Errorf("Can not start server: %v", err)
-				return
+				os.Exit(1)
 			}
 		}()
 	}
